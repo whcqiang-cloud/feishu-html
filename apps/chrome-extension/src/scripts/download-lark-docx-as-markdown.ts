@@ -17,6 +17,12 @@ import {
 } from '../common/utils'
 import { getSettings, Grid } from '../common/settings'
 import { DownloadMethod, SettingKey } from '@/common/settings'
+import {
+  bitableToMarkdown,
+  extractStandaloneBitableTable,
+  extractStandaloneBitableTableFromWebApi,
+  isStandaloneBitablePage,
+} from './bitable-export'
 
 const uniqueFileName = new UniqueFileName()
 
@@ -36,6 +42,7 @@ const enum TranslationKey {
   FILE = 'file',
   CANCEL = 'cancel',
   SCROLL_DOCUMENT = 'scroll_document',
+  BITABLE_OPENAPI_REQUIRED = 'bitable_openapi_required',
 }
 
 enum ToastKey {
@@ -68,6 +75,8 @@ i18next
           [TranslationKey.FILE]: 'File',
           [TranslationKey.CANCEL]: 'Cancel',
           [TranslationKey.SCROLL_DOCUMENT]: 'Scrolling to load document',
+          [TranslationKey.BITABLE_OPENAPI_REQUIRED]:
+            'Standalone Bitable data is not available in the page DOM. OpenAPI support is required to export it completely.',
         },
         ...en,
       },
@@ -90,6 +99,8 @@ i18next
           [TranslationKey.FILE]: '文件',
           [TranslationKey.CANCEL]: '取消',
           [TranslationKey.SCROLL_DOCUMENT]: '滚动中，以便加载文档',
+          [TranslationKey.BITABLE_OPENAPI_REQUIRED]:
+            '独立多维表格数据未暴露在页面 DOM 中，需要接入飞书 OpenAPI 才能完整导出。',
         },
         ...zh,
       },
@@ -518,8 +529,48 @@ const prepare = async (): Promise<PrepareResult> => {
   }
 }
 
+const downloadStandaloneBitableAsMarkdown = async (): Promise<void> => {
+  const settings = await getSettings([SettingKey.DownloadMethod])
+  const table =
+    (await extractStandaloneBitableTableFromWebApi()) ??
+    extractStandaloneBitableTable()
+
+  if (!table) {
+    Toast.warning({
+      content: i18next.t(TranslationKey.BITABLE_OPENAPI_REQUIRED),
+    })
+    throw new Error(DOWNLOAD_ABORTED)
+  }
+
+  const filename = `${normalizeFileName(table.title.slice(0, OneHundred))}.md`
+  const toBlob = (): Blob =>
+    new Blob([bitableToMarkdown(table)], { type: 'text/markdown' })
+
+  if (
+    settings[SettingKey.DownloadMethod] === DownloadMethod.ShowSaveFilePicker &&
+    supported
+  ) {
+    if (!navigator.userActivation.isActive) {
+      const confirmed = await confirm()
+      if (!confirmed) throw new Error(DOWNLOAD_ABORTED)
+    }
+
+    await fileSave(toBlob(), {
+      fileName: filename,
+      extensions: ['.md'],
+    })
+  } else {
+    legacyFileSave(toBlob(), { fileName: filename })
+  }
+}
+
 const main = async (options: { signal?: AbortSignal } = {}) => {
   const { signal } = options
+
+  if (!docx.isDocx && isStandaloneBitablePage()) {
+    await downloadStandaloneBitableAsMarkdown()
+    return
+  }
 
   if (docx.isDoc) {
     Toast.warning({ content: i18next.t(TranslationKey.NOT_SUPPORT_DOC_1_0) })

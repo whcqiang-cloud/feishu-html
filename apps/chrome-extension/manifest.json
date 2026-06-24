@@ -37,6 +37,19 @@
         "https://*.larkoffice.com/*",
         "https://*.larkenterprise.com/*"
       ],
+      "js": ["bundles/scripts/bitable-clientvars-cache.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.feishu.cn/*",
+        "https://*.feishu.net/*",
+        "https://*.larksuite.com/*",
+        "https://*.feishu-pre.net/*",
+        "https://*.larkoffice.com/*",
+        "https://*.larkenterprise.com/*"
+      ],
       "js": ["bundles/content.js"],
       "run_at": "document_end"
     }

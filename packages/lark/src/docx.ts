@@ -72,6 +72,7 @@ declare module 'mdast' {
 export enum BlockType {
   PAGE = 'page',
   BITABLE = 'bitable',
+  BASE_REFER = 'base_refer',
   CALLOUT = 'callout',
   CHAT_CARD = 'chat_card',
   CODE = 'code',
@@ -497,10 +498,17 @@ interface TimelineBlock extends Block {
 
 type ISVBlocks = TextDrawingBlock | TimelineBlock | OtherISVBlock
 
+interface BitableBlock extends Block {
+  type: BlockType.BITABLE | BlockType.BASE_REFER
+  snapshot: {
+    type: BlockType.BITABLE | BlockType.BASE_REFER
+    caption?: Caption
+  }
+}
+
 interface NotSupportedBlock extends Block {
   type:
     | BlockType.QUOTE
-    | BlockType.BITABLE
     | BlockType.CHAT_CARD
     | BlockType.MINDNOTE
     | BlockType.SHEET
@@ -528,6 +536,7 @@ type Blocks =
   | SyncedReference
   | Whiteboard
   | DiagramBlock
+  | BitableBlock
   | View
   | File
   | IframeBlock
@@ -561,6 +570,42 @@ const iframeToHTML = (iframe: IframeBlock): mdast.Html | null => {
     type: 'html',
     value: html,
   }
+}
+
+const findRenderedBitableElement = (recordId: string): HTMLElement | null => {
+  const selectors = [
+    `[data-block-id="${recordId}"]`,
+    `[data-record-id="${recordId}"]`,
+    `[data-recordid="${recordId}"]`,
+    `[data-block-record-id="${recordId}"]`,
+    `[data-node-id="${recordId}"]`,
+    `[id="${recordId}"]`,
+  ]
+
+  for (const selector of selectors) {
+    const element = document.querySelector<HTMLElement>(selector)
+    const bitableElement =
+      element?.closest<HTMLElement>(
+        '[data-block-type="bitable"], [class*="bitable"], [class*="Bitable"]',
+      ) ?? element
+
+    if (bitableElement) {
+      return bitableElement
+    }
+  }
+
+  return null
+}
+
+const extractBitableHtml = (bitableElement: HTMLElement): string => {
+  const tableElement = bitableElement.querySelector('table')
+  if (tableElement) return tableElement.outerHTML
+
+  const gridElement = bitableElement.querySelector<HTMLElement>(
+    '[role="grid"], [role="table"], [class*="grid"], [class*="table"], [class*="Table"]',
+  )
+
+  return gridElement?.outerHTML ?? bitableElement.innerHTML
 }
 
 /**
@@ -1133,10 +1178,12 @@ type Mutate<T extends Block> = T extends PageBlock
                       : T extends File
                         ? mdast.Link
                         : T extends IframeBlock
-                          ? mdast.Html
-                          : T extends TextDrawingBlock | TimelineBlock
-                            ? mdast.Code
-                            : null
+                    ? mdast.Html
+                  : T extends BitableBlock
+                    ? mdast.Html
+                  : T extends TextDrawingBlock | TimelineBlock
+                    ? mdast.Code
+                    : null
 
 interface TransformerOptions {
   /**
@@ -1164,6 +1211,11 @@ interface TransformerOptions {
    * @default false
    */
   flatGrid?: boolean
+  /**
+   * Enable convert bitable to HTML table.
+   * @default false
+   */
+  bitable?: boolean
   /**
    * Locate block with record id.
    */
@@ -1701,6 +1753,32 @@ export class Transformer {
         }
 
         return null
+      }
+      case BlockType.BITABLE:
+      case BlockType.BASE_REFER: {
+        if (!this.options.bitable) return null
+
+        const recordId = block.record?.id
+        if (!recordId) return null
+
+        const bitableElement = findRenderedBitableElement(recordId)
+        const tableHtml = bitableElement
+          ? extractBitableHtml(bitableElement)
+          : ''
+
+        const caption = evaluateAlt(block.snapshot.caption)
+        const captionHtml = caption
+          ? `<figcaption>${caption}</figcaption>`
+          : ''
+        const contentHtml = tableHtml
+          || `<p class="bitable-missing">Bitable content is not loaded in the current page.</p>`
+
+        const html: mdast.Html = {
+          type: 'html',
+          value: `<figure class="bitable">${captionHtml}<div class="bitable-wrapper">${contentHtml}</div></figure>`,
+        }
+
+        return html
       }
       default:
         return null

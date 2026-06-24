@@ -21,6 +21,12 @@ import {
   wrapIntoFullHtml,
   type AttachmentInfo,
 } from './html-templates'
+import {
+  bitableToHtml,
+  extractStandaloneBitableTable,
+  extractStandaloneBitableTableFromWebApi,
+  isStandaloneBitablePage,
+} from './bitable-export'
 
 const DOWNLOAD_ABORTED = 'Download aborted'
 
@@ -38,6 +44,7 @@ const enum TranslationKey {
   FILE = 'file',
   CANCEL = 'cancel',
   SCROLL_DOCUMENT = 'scroll_document',
+  BITABLE_OPENAPI_REQUIRED = 'bitable_openapi_required',
 }
 
 enum ToastKey {
@@ -70,6 +77,8 @@ i18next
           [TranslationKey.FILE]: 'File',
           [TranslationKey.CANCEL]: 'Cancel',
           [TranslationKey.SCROLL_DOCUMENT]: 'Scrolling to load document',
+          [TranslationKey.BITABLE_OPENAPI_REQUIRED]:
+            'Standalone Bitable data is not available in the page DOM. OpenAPI support is required to export it completely.',
         },
         ...en,
       },
@@ -92,6 +101,8 @@ i18next
           [TranslationKey.FILE]: '文件',
           [TranslationKey.CANCEL]: '取消',
           [TranslationKey.SCROLL_DOCUMENT]: '滚动中，以便加载文档',
+          [TranslationKey.BITABLE_OPENAPI_REQUIRED]:
+            '独立多维表格数据未暴露在页面 DOM 中，需要接入飞书 OpenAPI 才能完整导出。',
         },
         ...zh,
       },
@@ -159,7 +170,7 @@ function blobToDataURL(blob: Blob): Promise<string> {
 }
 
 /**
- * Compress image using Canvas API without changing format
+ * Compress image using Canvas API, always output as JPEG so quality parameter takes effect.
  */
 function compressImage(
   blob: Blob,
@@ -188,7 +199,7 @@ function compressImage(
             resolve(blob)
           }
         },
-        blob.type,
+        'image/jpeg',
         quality,
       )
 
@@ -260,8 +271,8 @@ const downloadAndInlineImage = async (
         let finalBlob: Blob = blob
         const sizeKb = blob.size / 1024
 
-        // Compress image if exceeds threshold and compression is enabled
-        if (sizeKb > maxInlineSizeKb && compressEnabled) {
+        // Compress image if compression is enabled (all images, not just oversized ones)
+        if (compressEnabled) {
           const displayName = originName ?? 'unknown'
           Toast.loading({
             content: i18next.t(TranslationKey.DOWNLOADING_FILE, {
@@ -468,8 +479,61 @@ const prepare = async (): Promise<PrepareResult> => {
   }
 }
 
+const downloadStandaloneBitableAsHtml = async (): Promise<void> => {
+  const settings = await getSettings([
+    SettingKey.DownloadMethod,
+    SettingKey.HtmlIncludeStyles,
+    SettingKey.HtmlPrintFriendly,
+  ])
+
+  const table =
+    (await extractStandaloneBitableTableFromWebApi()) ??
+    extractStandaloneBitableTable()
+  if (!table) {
+    Toast.warning({
+      content: i18next.t(TranslationKey.BITABLE_OPENAPI_REQUIRED),
+    })
+    throw new Error(DOWNLOAD_ABORTED)
+  }
+
+  const filename = `${normalizeFileName(table.title.slice(0, OneHundred))}.html`
+  const toBlob = (): Blob => {
+    const html = wrapIntoFullHtml({
+      pageTitle: table.title,
+      bodyHtml: bitableToHtml(table),
+      attachments: [],
+      includeStyles: settings[SettingKey.HtmlIncludeStyles],
+      printFriendly: settings[SettingKey.HtmlPrintFriendly],
+    })
+
+    return new Blob([html], { type: 'text/html' })
+  }
+
+  if (
+    settings[SettingKey.DownloadMethod] === DownloadMethod.ShowSaveFilePicker &&
+    supported
+  ) {
+    if (!navigator.userActivation.isActive) {
+      const confirmed = await confirm()
+      if (!confirmed) throw new Error(DOWNLOAD_ABORTED)
+    }
+
+    await fileSave(toBlob(), {
+      fileName: filename,
+      extensions: ['.html'],
+    })
+  } else {
+    legacyFileSave(toBlob(), { fileName: filename })
+  }
+}
+
 const main = async (options: { signal?: AbortSignal } = {}) => {
   const { signal } = options
+
+  if (!docx.isDocx && isStandaloneBitablePage()) {
+    await downloadStandaloneBitableAsHtml()
+    return
+  }
 
   if (docx.isDoc) {
     Toast.warning({ content: i18next.t(TranslationKey.NOT_SUPPORT_DOC_1_0) })
@@ -508,6 +572,7 @@ const main = async (options: { signal?: AbortSignal } = {}) => {
       whiteboard: true,
       diagram: true,
       file: true,
+      bitable: true,
       highlight: settings[SettingKey.TextHighlight],
       flatGrid: settings[SettingKey.Grid] === Grid.Flatten,
     })

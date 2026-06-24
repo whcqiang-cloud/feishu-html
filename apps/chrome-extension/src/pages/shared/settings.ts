@@ -28,6 +28,8 @@ export const useSettings = <
     | SettingKey.DownloadFileWithUniqueName
     | SettingKey.HtmlImageInline
     | SettingKey.HtmlMaxInlineSizeKb
+    | SettingKey.HtmlImageCompressEnabled
+    | SettingKey.HtmlImageCompressQuality
     | SettingKey.HtmlIncludeStyles
     | SettingKey.HtmlPrintFriendly,
 >(
@@ -50,6 +52,12 @@ export const useSettings = <
       SettingKey.Grid,
       SettingKey.TextHighlight,
       SettingKey.DownloadFileWithUniqueName,
+      SettingKey.HtmlImageInline,
+      SettingKey.HtmlMaxInlineSizeKb,
+      SettingKey.HtmlImageCompressEnabled,
+      SettingKey.HtmlImageCompressQuality,
+      SettingKey.HtmlIncludeStyles,
+      SettingKey.HtmlPrintFriendly,
     ] as Key[],
   } = options
 

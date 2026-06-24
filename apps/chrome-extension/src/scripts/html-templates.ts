@@ -148,6 +148,45 @@ const CSS_STYLES = /* css */ `
     text-align: center;
   }
 
+  figure.bitable {
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+
+  figure.bitable figcaption {
+    font-size: 0.9em;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  .bitable-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .bitable-wrapper table {
+    display: table;
+    border-collapse: collapse;
+    width: auto;
+    min-width: 100%;
+  }
+
+  .bitable-wrapper table th,
+  .bitable-wrapper table td {
+    border: 1px solid var(--color-border);
+    padding: 6px 12px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .bitable-wrapper table th {
+    background-color: var(--color-code-bg);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+  }
+
   footer {
     margin-top: 48px;
     padding-top: 24px;
