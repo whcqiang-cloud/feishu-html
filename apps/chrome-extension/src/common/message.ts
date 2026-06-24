@@ -5,6 +5,7 @@ export enum Flag {
   ExecuteCopyScript = 'copy_docx_as_markdown',
   ExecuteDownloadScript = 'download_docx_as_markdown',
   ExecuteDownloadHtmlScript = 'download_docx_as_html',
+  ExecuteDownloadBitableHtmlScript = 'download_bitable_as_html',
 }
 
 interface ExecuteScriptMessage {

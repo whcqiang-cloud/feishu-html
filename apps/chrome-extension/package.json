@@ -5,6 +5,7 @@
   "scripts": {
     "type-check": "vue-tsc -b",
     "build": "node --experimental-strip-types ./scripts/cli.ts build",
+    "build:release": "node --experimental-strip-types ./scripts/cli.ts build && node --experimental-strip-types ./scripts/release.ts",
     "dev:pages": "vite",
     "test": "vitest run"
   },

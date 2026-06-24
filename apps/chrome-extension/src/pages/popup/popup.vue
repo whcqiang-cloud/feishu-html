@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, Copy, Download, Info, Settings, FileCode } from 'lucide-vue-next'
+import { Eye, Copy, Download, Info, Settings, FileCode, Table2 } from 'lucide-vue-next'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +54,13 @@ const handleOpenOptionsPage = () => {
       >
         <FileCode />
         {{ t('lark.docx.download_html') }}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        @select="() => handleMessage(Flag.ExecuteDownloadBitableHtmlScript)"
+      >
+        <Table2 />
+        {{ t('lark.bitable.download_html') }}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem

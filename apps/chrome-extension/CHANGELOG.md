@@ -1,5 +1,16 @@
 # @dolphin/chrome-extension
 
+## 1.10.9
+
+### Minor Changes
+
+- [#???](https://github.com/whale4113/cloud-document-converter/pull/???) [`???`](???) Thanks [@whale4113](https://github.com/whale4113)! - feat: support standalone Bitable export (HTML/Markdown)
+
+  - New export logic for standalone Bitable pages using Feishu Web internal APIs
+  - Added Bitable download entries to popup menu and context menus
+  - Added release packaging script (`build:release`) to generate .zip distribution
+  - Updated README with Bitable compatibility information
+
 ## 1.10.8
 
 ### Patch Changes

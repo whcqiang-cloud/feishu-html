@@ -1,6 +1,16 @@
 # bundles
 bundles
 
+# release
+release
+
+# dist
+dist
+
 dist-firefox
 
 web-ext-artifacts
+
+# certificate
+dist.pem
+dist.crx

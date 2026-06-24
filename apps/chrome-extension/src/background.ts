@@ -1,4 +1,5 @@
 import { type Message } from './common/message'
+import { Flag } from './common/message'
 
 const sharedDocumentUrlPatterns: string[] = [
   'https://*.feishu.cn/*',
@@ -14,6 +15,8 @@ enum MenuItemId {
   COPY_DOCX_AS_MARKDOWN = 'copy_docx_as_markdown',
   VIEW_DOCX_AS_MARKDOWN = 'view_docx_as_markdown',
   DOWNLOAD_DOCX_AS_HTML = 'download_docx_as_html',
+  DOWNLOAD_BITABLE_AS_MD = 'download_bitable_as_md',
+  DOWNLOAD_BITABLE_AS_HTML = 'download_bitable_as_html',
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -44,6 +47,20 @@ chrome.runtime.onInstalled.addListener(() => {
     documentUrlPatterns: sharedDocumentUrlPatterns,
     contexts: ['page', 'editable'],
   })
+
+  chrome.contextMenus.create({
+    id: MenuItemId.DOWNLOAD_BITABLE_AS_MD,
+    title: chrome.i18n.getMessage('download_bitable_as_md'),
+    documentUrlPatterns: sharedDocumentUrlPatterns,
+    contexts: ['page', 'editable'],
+  })
+
+  chrome.contextMenus.create({
+    id: MenuItemId.DOWNLOAD_BITABLE_AS_HTML,
+    title: chrome.i18n.getMessage('download_bitable_as_html'),
+    documentUrlPatterns: sharedDocumentUrlPatterns,
+    contexts: ['page', 'editable'],
+  })
 })
 
 const executeScriptByFlag = async (flag: string | number, tabId: number) => {
@@ -70,6 +87,20 @@ const executeScriptByFlag = async (flag: string | number, tabId: number) => {
       })
       break
     case MenuItemId.DOWNLOAD_DOCX_AS_HTML:
+      await chrome.scripting.executeScript({
+        files: ['bundles/scripts/download-lark-docx-as-html.js'],
+        target: { tabId },
+        world: 'MAIN',
+      })
+      break
+    case MenuItemId.DOWNLOAD_BITABLE_AS_MD:
+      await chrome.scripting.executeScript({
+        files: ['bundles/scripts/download-lark-docx-as-markdown.js'],
+        target: { tabId },
+        world: 'MAIN',
+      })
+      break
+    case MenuItemId.DOWNLOAD_BITABLE_AS_HTML:
       await chrome.scripting.executeScript({
         files: ['bundles/scripts/download-lark-docx-as-html.js'],
         target: { tabId },
