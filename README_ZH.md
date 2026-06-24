@@ -11,7 +11,6 @@ Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书
 
 # 安装
 
-从 [Chrome 应用商店](https://chromewebstore.google.com/detail/cloud-document-converter/ehkomhhcinhikfddnmklbloahaakploh)、[Microsoft Edge 加载项](https://microsoftedge.microsoft.com/addons/detail/pcjebkebnehplnpkpnhipagefaffiopp) 和 [Firefox 附加组件](https://addons.mozilla.org/addon/cloud-document-converter) 安装 Cloud Document Converter。
 
 # 功能
 
@@ -20,6 +19,16 @@ Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书
 - 复制飞书云文档为 Markdown
 
   > ❗注意: 通过这种方式生成的图像 URL 只有两个小时的访问时间。这意味着两小时后，将无法再访问图像资源。
+
+- 下载飞书云文档为 HTML
+
+- 复制飞书云文档为 HTML
+
+- 下载独立多维表格为 Markdown
+
+- 下载独立多维表格为 HTML
+
+  > 💡独立多维表格导出使用浏览器当前登录态，通过飞书内部接口获取数据。适用于当前标签页中已加载的多维表格。
 
 # 兼容性
 
@@ -42,7 +51,8 @@ Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书
 | 引用块                | ✅            |                                   |
 | 图表 (流程图、UML 图) | ❌            | Image（仅下载支持）               |
 | 分栏                  | ✅            | Flatten/Table/HTML               |
-| 多维表格              | 待定         |                                   |
+| 多维表格（嵌入文档） | 部分支持 ✅            |                                   |
+| 多维表格（独立页面） | ✅                     | Markdown / HTML                   |
 | 群名片                | 待定         |                                   |
 | 文件                  | ❌            | Link（仅下载支持）                |
 | 内嵌网页              | ✅            | HTML                              |

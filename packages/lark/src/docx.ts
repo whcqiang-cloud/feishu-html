@@ -1178,12 +1178,12 @@ type Mutate<T extends Block> = T extends PageBlock
                       : T extends File
                         ? mdast.Link
                         : T extends IframeBlock
-                    ? mdast.Html
-                  : T extends BitableBlock
-                    ? mdast.Html
-                  : T extends TextDrawingBlock | TimelineBlock
-                    ? mdast.Code
-                    : null
+                          ? mdast.Html
+                          : T extends BitableBlock
+                            ? mdast.Html
+                            : T extends TextDrawingBlock | TimelineBlock
+                              ? mdast.Code
+                              : null
 
 interface TransformerOptions {
   /**
@@ -1767,11 +1767,10 @@ export class Transformer {
           : ''
 
         const caption = evaluateAlt(block.snapshot.caption)
-        const captionHtml = caption
-          ? `<figcaption>${caption}</figcaption>`
-          : ''
-        const contentHtml = tableHtml
-          || `<p class="bitable-missing">Bitable content is not loaded in the current page.</p>`
+        const captionHtml = caption ? `<figcaption>${caption}</figcaption>` : ''
+        const contentHtml =
+          tableHtml ||
+          `<p class="bitable-missing">Bitable content is not loaded in the current page.</p>`
 
         const html: mdast.Html = {
           type: 'html',

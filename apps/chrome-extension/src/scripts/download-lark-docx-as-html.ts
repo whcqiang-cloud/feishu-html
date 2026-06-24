@@ -17,10 +17,7 @@ import { getSettings, Grid } from '../common/settings'
 import { DownloadMethod, SettingKey } from '@/common/settings'
 import { toHast } from 'mdast-util-to-hast'
 import { toHtml } from 'hast-util-to-html'
-import {
-  wrapIntoFullHtml,
-  type AttachmentInfo,
-} from './html-templates'
+import { wrapIntoFullHtml, type AttachmentInfo } from './html-templates'
 import {
   bitableToHtml,
   extractStandaloneBitableTable,
@@ -172,11 +169,8 @@ function blobToDataURL(blob: Blob): Promise<string> {
 /**
  * Compress image using Canvas API, always output as JPEG so quality parameter takes effect.
  */
-function compressImage(
-  blob: Blob,
-  quality: number,
-): Promise<Blob> {
-  return new Promise((resolve) => {
+function compressImage(blob: Blob, quality: number): Promise<Blob> {
+  return new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
       const canvas = document.createElement('canvas')
@@ -223,7 +217,12 @@ const downloadAndInlineImage = async (
 ): Promise<boolean> => {
   if (!image.data) return false
 
-  const { signal, maxInlineSizeKb = 10240, compressEnabled = true, compressQuality = 0.6 } = options
+  const {
+    signal,
+    maxInlineSizeKb = 10240,
+    compressEnabled = true,
+    compressQuality = 0.6,
+  } = options
 
   const { name: originName, fetchSources, fetchBlob } = image.data
 
@@ -261,8 +260,7 @@ const downloadAndInlineImage = async (
               })
             },
           })
-        }
-        else {
+        } else {
           return false
         }
 
@@ -294,8 +292,7 @@ const downloadAndInlineImage = async (
             image.alt = `[image too large: ${displayName} (${Math.round(compressedSizeKb).toString()}KB after compression)]`
             return true
           }
-        }
-        else if (sizeKb > maxInlineSizeKb) {
+        } else if (sizeKb > maxInlineSizeKb) {
           image.url = ''
           const displayName = originName ?? 'unknown'
           image.alt = `[image too large: ${displayName} (${Math.round(sizeKb).toString()}KB)]`
@@ -343,7 +340,13 @@ const downloadAndInlineImages = async (
     compressQuality?: number
   } = {},
 ): Promise<void> => {
-  const { batchSize = 3, signal, maxInlineSizeKb, compressEnabled, compressQuality } = options
+  const {
+    batchSize = 3,
+    signal,
+    maxInlineSizeKb,
+    compressEnabled,
+    compressQuality,
+  } = options
 
   const imgs = images.filter(image => image.data?.fetchSources)
   const diagrams = images.filter(image => image.data?.fetchBlob)
@@ -353,7 +356,12 @@ const downloadAndInlineImages = async (
   for (const batch of cluster(allImages, batchSize)) {
     await Promise.allSettled(
       batch.map(image =>
-        downloadAndInlineImage(image, { signal, maxInlineSizeKb, compressEnabled, compressQuality }),
+        downloadAndInlineImage(image, {
+          signal,
+          maxInlineSizeKb,
+          compressEnabled,
+          compressQuality,
+        }),
       ),
     )
   }

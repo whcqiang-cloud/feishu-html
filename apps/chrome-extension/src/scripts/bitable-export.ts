@@ -34,14 +34,15 @@ function extractFromNativeTable(table: HTMLTableElement): string[][] {
 }
 
 function extractFromRoleGrid(grid: HTMLElement): string[][] {
-  const rows = Array.from(grid.querySelectorAll<HTMLElement>('[role="row"]'))
-    .map(row =>
-      Array.from(
-        row.querySelectorAll<HTMLElement>(
-          '[role="columnheader"], [role="rowheader"], [role="gridcell"], [role="cell"]',
-        ),
-      ).map(cell => normalizeText(cell.innerText || cell.textContent || '')),
-    )
+  const rows = Array.from(
+    grid.querySelectorAll<HTMLElement>('[role="row"]'),
+  ).map(row =>
+    Array.from(
+      row.querySelectorAll<HTMLElement>(
+        '[role="columnheader"], [role="rowheader"], [role="gridcell"], [role="cell"]',
+      ),
+    ).map(cell => normalizeText(cell.innerText || cell.textContent || '')),
+  )
 
   return uniqueRows(rows)
 }
@@ -58,7 +59,9 @@ function getPageTitle(): string {
 
 export function extractStandaloneBitableTable(): BitableTable | null {
   const table = document.querySelector<HTMLTableElement>('table')
-  const grid = document.querySelector<HTMLElement>('[role="grid"], [role="table"]')
+  const grid = document.querySelector<HTMLElement>(
+    '[role="grid"], [role="table"]',
+  )
   const rows = table
     ? extractFromNativeTable(table)
     : extractFromRoleGrid(grid ?? document.body)
@@ -86,12 +89,15 @@ interface BitableField {
 
 interface BitableTableData {
   fieldMap?: Record<string, BitableField>
-  viewMap?: Record<string, {
-    property?: {
-      fields?: string[]
-      colInfos?: Record<string, { hidden?: boolean }>
+  viewMap?: Record<
+    string,
+    {
+      property?: {
+        fields?: string[]
+        colInfos?: Record<string, { hidden?: boolean }>
+      }
     }
-  }>
+  >
   currentView?: string
   groupList?: { recordIDList?: string[] }[]
   recordMap?: Record<string, unknown>
@@ -102,7 +108,9 @@ function parseStandaloneBitableUrl(): {
   tableId: string
   viewId: string
 } | null {
-  const token = /\/(?:base|bitable)\/([^/?#]+)/i.exec(window.location.pathname)?.[1]
+  const token = /\/(?:base|bitable)\/([^/?#]+)/i.exec(
+    window.location.pathname,
+  )?.[1]
   const params = new URLSearchParams(window.location.search)
   const tableId = params.get('table')
   const viewId = params.get('view')
@@ -115,34 +123,55 @@ function parseStandaloneBitableUrl(): {
 async function decodeGzipBase64(value: string): Promise<string> {
   const binary = atob(value)
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+  const stream = new Blob([bytes])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'))
 
   return new Response(stream).text()
 }
 
-async function decodeClientVarsField<T>(value: string | undefined): Promise<T | null> {
+async function decodeClientVarsField<T>(
+  value: string | undefined,
+): Promise<T | null> {
   if (!value) return null
   const text = value.startsWith('H4sI') ? await decodeGzipBase64(value) : value
 
   return JSON.parse(text) as T
 }
 
-function optionMapForField(field: BitableField | undefined): Map<string, string> {
+function optionMapForField(
+  field: BitableField | undefined,
+): Map<string, string> {
   return new Map(
-    field?.property?.options?.map(option => [option.id ?? '', option.name ?? '']) ?? [],
+    field?.property?.options?.map(option => [
+      option.id ?? '',
+      option.name ?? '',
+    ]) ?? [],
   )
 }
 
-function stringifyCellValue(value: unknown, options: Map<string, string>): string {
+function stringifyCellValue(
+  value: unknown,
+  options: Map<string, string>,
+): string {
   if (value == null) return ''
   if (typeof value === 'string') return options.get(value) ?? value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value)
   if (Array.isArray(value)) {
-    return value.map(item => stringifyCellValue(item, options)).filter(Boolean).join(', ')
+    return value
+      .map(item => stringifyCellValue(item, options))
+      .filter(Boolean)
+      .join(', ')
   }
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>
-    const preferred = record['text'] ?? record['name'] ?? record['value'] ?? record['title'] ?? record['id']
+    const preferred =
+      record['text'] ??
+      record['name'] ??
+      record['value'] ??
+      record['title'] ??
+      record['id']
     if (preferred !== undefined && preferred !== value) {
       return stringifyCellValue(preferred, options)
     }
@@ -170,19 +199,26 @@ function getRecordFields(record: unknown): Record<string, unknown> {
 
 function tableDataToRows(table: BitableTableData): string[][] {
   const view = table.viewMap?.[table.currentView ?? '']
-  const allFieldIds = view?.property?.fields ?? Object.keys(table.fieldMap ?? {})
+  const allFieldIds =
+    view?.property?.fields ?? Object.keys(table.fieldMap ?? {})
   const fieldIds = allFieldIds.filter(
     fieldId => !view?.property?.colInfos?.[fieldId]?.hidden,
   )
-  const recordIds = table.groupList?.flatMap(group => group.recordIDList ?? []) ??
+  const recordIds =
+    table.groupList?.flatMap(group => group.recordIDList ?? []) ??
     Object.keys(table.recordMap ?? {})
 
-  const header = fieldIds.map(fieldId => table.fieldMap?.[fieldId]?.name ?? fieldId)
+  const header = fieldIds.map(
+    fieldId => table.fieldMap?.[fieldId]?.name ?? fieldId,
+  )
   const body = recordIds.map(recordId => {
     const fields = getRecordFields(table.recordMap?.[recordId])
 
     return fieldIds.map(fieldId =>
-      stringifyCellValue(fields[fieldId], optionMapForField(table.fieldMap?.[fieldId])),
+      stringifyCellValue(
+        fields[fieldId],
+        optionMapForField(table.fieldMap?.[fieldId]),
+      ),
     )
   })
 
@@ -273,5 +309,7 @@ export function bitableToMarkdown(table: BitableTable): string {
     row => `| ${row.map(escapeMarkdownCell).join(' | ')} |`,
   )
 
-  return [`# ${table.title}`, '', headerLine, separatorLine, ...bodyLines].join('\n')
+  return [`# ${table.title}`, '', headerLine, separatorLine, ...bodyLines].join(
+    '\n',
+  )
 }

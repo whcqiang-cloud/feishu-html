@@ -13,7 +13,9 @@ function cacheClientvars(url: string | undefined, text: string): void {
   if (!isClientvarsUrl(url)) return
 
   try {
-    const json = JSON.parse(text) as { data?: { base?: unknown; table?: unknown } }
+    const json = JSON.parse(text) as {
+      data?: { base?: unknown; table?: unknown }
+    }
     if (json.data?.base || json.data?.table) {
       sessionStorage.setItem(CLIENTVARS_CACHE_KEY, text)
     }
