@@ -1,0 +1,63 @@
+{
+  "name": "@dolphin/monorepo",
+  "description": "Convert lark cloud documents to markdown",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "watch": "turbo watch build",
+    "build": "turbo run build",
+    "type-check": "turbo run type-check",
+    "test": "turbo run test",
+    "test:e2e:unit": "node --experimental-strip-types --test apps/chrome-extension-e2e/tests/env.unit.test.ts",
+    "test:e2e:install": "pnpm exec playwright install --with-deps chromium",
+    "test:e2e": "pnpm exec playwright test -c apps/chrome-extension-e2e/playwright.config.ts",
+    "test:e2e:debug": "PWDEBUG=1 pnpm exec playwright test -c apps/chrome-extension-e2e/playwright.config.ts --headed --workers=1",
+    "lint": "eslint .",
+    "format": "prettier . --write --ignore-path .gitignore --ignore-path .prettierignore",
+    "format-check": "prettier . --check --ignore-path .gitignore --ignore-path .prettierignore",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "lark",
+    "markdown"
+  ],
+  "author": "Junji Lu",
+  "devDependencies": {
+    "@playwright/test": "catalog:tools",
+    "@changesets/changelog-github": "catalog:cli",
+    "@changesets/cli": "catalog:cli",
+    "@dolphin/typescript-config": "workspace:^",
+    "@eslint/js": "catalog:lint",
+    "@types/node": "catalog:types",
+    "@types/regexp.escape": "catalog:types",
+    "eslint": "catalog:lint",
+    "happy-dom": "catalog:dev",
+    "husky": "catalog:lint",
+    "lint-staged": "catalog:lint",
+    "prettier": "catalog:lint",
+    "regexp.escape": "catalog:utils",
+    "rolldown-vite": "catalog:build",
+    "tsdown": "catalog:build",
+    "turbo": "catalog:monorepo",
+    "typescript": "catalog:dev",
+    "typescript-eslint": "catalog:lint",
+    "vitest": "catalog:test",
+    "web-ext": "catalog:tools"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint"
+    ],
+    "*.{js,jsx,ts,tsx,json,md,css}": [
+      "prettier --check --ignore-path .gitignore --ignore-path .prettierignore"
+    ]
+  },
+  "packageManager": "pnpm@10.15.0",
+  "volta": {
+    "node": "22.18.0",
+    "pnpm": "10.15.0"
+  },
+  "dependencies": {
+    "core-js": "catalog:prod"
+  }
+}

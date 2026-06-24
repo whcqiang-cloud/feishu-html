@@ -1,0 +1,39 @@
+# dependencies
+node_modules
+.pnpm-store
+
+# production
+dist
+
+# turborepo
+.turbo
+
+# playwright
+.cache
+playwright-report
+test-results
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# logs
+*.log
+
+# environment variables
+.env
+.env.local
+.env.*.local
+
+# build artifacts
+*.tsbuildinfo
+
+# project docs
+feishu-html.md

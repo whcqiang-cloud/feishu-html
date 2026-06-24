@@ -1,0 +1,17 @@
+# root
+.github
+.vscode
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# Markdown
+*.md
+
+# apps/chrome-extension
+bundles
+dist-firefox
+web-ext-artifacts
+popup.html
+
+# apps/lark
+compiled
