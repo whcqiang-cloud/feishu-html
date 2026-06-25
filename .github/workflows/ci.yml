@@ -30,6 +30,7 @@ jobs:
         run: pnpm run test
 
   e2e-test:
+    if: false # all e2e tests require real Feishu login (@live), skip in CI
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
