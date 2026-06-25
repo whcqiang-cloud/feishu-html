@@ -105,10 +105,7 @@ const zipData = (data: Buffer) => {
   return zlib.deflateSync(data)
 }
 
-const collectFiles = async (
-  dir: string,
-  prefix = '',
-): Promise<FileEntry[]> => {
+const collectFiles = async (dir: string, prefix = ''): Promise<FileEntry[]> => {
   const results: FileEntry[] = []
   const entries = await fs.readdir(dir, { withFileTypes: true })
   for (const entry of entries) {
