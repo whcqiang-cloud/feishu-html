@@ -74,7 +74,7 @@ const handleOpenOptionsPage = () => {
       <DropdownMenuItem
         :as-child="true"
         class="underline-offset-4 hover:underline"
-        href="https://github.com/whale4113/cloud-document-converter"
+        href="https://github.com/whcqiang-cloud/feishu-html"
         target="_blank"
       >
         <a>

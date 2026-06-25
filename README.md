@@ -11,7 +11,10 @@ Cloud Document Converter is a browser extension that supports downloading/copyin
 
 # Install
 
-
+1. Go to the [Releases](https://github.com/whcqiang-cloud/feishu-html/releases) page
+2. Download `cloud-document-html-{version}.zip` from the latest release
+3. Open `chrome://extensions/` in Chrome, enable **Developer mode**
+4. Unzip the file and drag the folder into the extensions page, or click **Load unpacked** and select the unzipped folder
 
 # Features
 

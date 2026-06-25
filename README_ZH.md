@@ -11,6 +11,10 @@ Cloud Document Converter 是一个浏览器扩展， 支持下载、复制飞书
 
 # 安装
 
+1. 前往 [Releases](https://github.com/whcqiang-cloud/feishu-html/releases) 页面
+2. 下载最新版本的 `cloud-document-html-{version}.zip`
+3. 打开 Chrome 的 `chrome://extensions/`，开启**开发者模式**
+4. 解压 zip 文件，将解压后的文件夹拖入扩展页面，或点击**加载已解压的扩展程序**选择解压后的文件夹
 
 # 功能
 
