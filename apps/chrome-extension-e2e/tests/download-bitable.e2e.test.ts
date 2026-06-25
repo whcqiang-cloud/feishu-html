@@ -1,25 +1,8 @@
-import fs from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { chromium, expect, test } from '@playwright/test'
-import { resolveLiveCopyConfig } from '../src/env.js'
-
-const dirname = path.dirname(fileURLToPath(import.meta.url))
-const workspaceDir = path.resolve(dirname, '..')
-const extensionPath = path.join(workspaceDir, '.cache/extension')
-const { userDataDir: fixedUserDataDir, headless } = resolveLiveCopyConfig()
-
-interface BitableDownloadCase {
-  name: string
-  url: string
-  expectedText: string
-  match: 'contains'
-}
+import { test } from '@playwright/test'
 
 // URL for standalone Bitable page
 // Format: https://nio.feishu.cn/base/{token}?table={tableId}&view={viewId}
-const bitableCases: BitableDownloadCase[] = [
+const bitableCases = [
   {
     name: 'standalone-bitable-html',
     url: '', // TODO: fill with actual Bitable URL
@@ -34,29 +17,7 @@ const bitableCases: BitableDownloadCase[] = [
   },
 ]
 
-const createUserDataDir = async (): Promise<{
-  path: string
-  shouldCleanup: boolean
-}> => {
-  if (fixedUserDataDir) {
-    await fs.mkdir(fixedUserDataDir, { recursive: true })
-    return {
-      path: fixedUserDataDir,
-      shouldCleanup: false,
-    }
-  }
-
-  return {
-    path: await fs.mkdtemp(
-      path.join(os.tmpdir(), 'cdc-extension-e2e-bitable-'),
-    ),
-    shouldCleanup: true,
-  }
-}
-
 for (const bitableCase of bitableCases) {
-  test.skip(
-    `@live download standalone bitable [${bitableCase.name}] - requires manual URL`,
-    () => {},
-  )
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  test.skip(`@live download standalone bitable [${bitableCase.name}] - requires manual URL`, () => {})
 }

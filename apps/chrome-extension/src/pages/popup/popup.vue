@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Eye, Copy, Download, Info, Settings, FileCode, Table2 } from 'lucide-vue-next'
+import {
+  Eye,
+  Copy,
+  Download,
+  Info,
+  Settings,
+  FileCode,
+  Table2,
+} from 'lucide-vue-next'
 import {
   DropdownMenu,
   DropdownMenuContent,

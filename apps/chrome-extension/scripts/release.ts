@@ -4,11 +4,16 @@ import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
 import packageJson from '../package.json' with { type: 'json' }
 
+interface FileEntry {
+  name: string
+  fullPath: string
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.resolve(__dirname, '../dist')
 const releaseDir = path.resolve(__dirname, '../release')
 
-const crcTable: number[] = []
+const crcTable = new Array<number>(256)
 for (let n = 0; n < 256; n++) {
   let c = n
   for (let k = 0; k < 8; k++) {
@@ -17,10 +22,10 @@ for (let n = 0; n < 256; n++) {
   crcTable[n] = c
 }
 
-const computeCrc32 = (buf: Buffer): number => {
+const computeCrc32 = (buf: Buffer) => {
   let crc = 0xffffffff
-  for (let i = 0; i < buf.length; i++) {
-    crc = crcTable[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8)
+  for (const byte of buf) {
+    crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8)
   }
   return (crc ^ 0xffffffff) >>> 0
 }
@@ -33,7 +38,7 @@ const writeUint16 = (buf: Buffer, offset: number, value: number) => {
   buf.writeUInt16LE(value >>> 0, offset)
 }
 
-const createLocalFileHeader = (fileName: string, data: Buffer): Buffer => {
+const createLocalFileHeader = (fileName: string, data: Buffer) => {
   const nameBuf = Buffer.from(fileName, 'utf8')
   const header = Buffer.alloc(30 + nameBuf.length)
   writeUint32(header, 0, 0x04034b50)
@@ -55,7 +60,7 @@ const createCentralDirectoryEntry = (
   fileName: string,
   data: Buffer,
   localHeaderOffset: number,
-): Buffer => {
+) => {
   const nameBuf = Buffer.from(fileName, 'utf8')
   const header = Buffer.alloc(46 + nameBuf.length)
   writeUint32(header, 0, 0x02014b50)
@@ -83,7 +88,7 @@ const createEndOfCentralDirectory = (
   cdSize: number,
   cdOffset: number,
   entryCount: number,
-): Buffer => {
+) => {
   const header = Buffer.alloc(22)
   writeUint32(header, 0, 0x06054b50)
   writeUint16(header, 4, 0)
@@ -96,15 +101,15 @@ const createEndOfCentralDirectory = (
   return header
 }
 
-const zipData = (data: Buffer): Buffer => {
+const zipData = (data: Buffer) => {
   return zlib.deflateSync(data)
 }
 
 const collectFiles = async (
   dir: string,
-  prefix: string = '',
-): Promise<{ name: string; fullPath: string }[]> => {
-  const results: { name: string; fullPath: string }[] = []
+  prefix = '',
+): Promise<FileEntry[]> => {
+  const results: FileEntry[] = []
   const entries = await fs.readdir(dir, { withFileTypes: true })
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue
@@ -119,10 +124,10 @@ const collectFiles = async (
   return results
 }
 
-const createZip = async (zipPath: string): Promise<void> => {
+const createZip = async (zipPath: string) => {
   const files = await collectFiles(distDir)
   const allBuffers: Buffer[] = []
-  let localHeaderOffsets: number[] = []
+  const localHeaderOffsets: number[] = []
 
   // First pass: write local file headers + compressed data
   for (const file of files) {
@@ -140,7 +145,11 @@ const createZip = async (zipPath: string): Promise<void> => {
     const file = files[i]
     const data = await fs.readFile(file.fullPath)
     const compressed = zipData(data)
-    const entry = createCentralDirectoryEntry(file.name, compressed, localHeaderOffsets[i])
+    const entry = createCentralDirectoryEntry(
+      file.name,
+      compressed,
+      localHeaderOffsets[i],
+    )
     cdEntries.push(entry)
   }
 
@@ -148,7 +157,9 @@ const createZip = async (zipPath: string): Promise<void> => {
 
   // End of central directory
   const cdSize = cdEntries.reduce((sum, b) => sum + b.length, 0)
-  allBuffers.push(createEndOfCentralDirectory(cdSize, cdStartOffset, files.length))
+  allBuffers.push(
+    createEndOfCentralDirectory(cdSize, cdStartOffset, files.length),
+  )
 
   const zipBuffer = Buffer.concat(allBuffers)
   await fs.writeFile(zipPath, zipBuffer)

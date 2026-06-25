@@ -1,5 +1,4 @@
 import { type Message } from './common/message'
-import { Flag } from './common/message'
 
 const sharedDocumentUrlPatterns: string[] = [
   'https://*.feishu.cn/*',
