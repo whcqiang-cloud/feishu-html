@@ -94,14 +94,20 @@ const executeScriptByFlag = async (flag: string | number, tabId: number) => {
       break
     case MenuItemId.DOWNLOAD_BITABLE_AS_MD:
       await chrome.scripting.executeScript({
-        files: ['bundles/scripts/download-lark-docx-as-markdown.js'],
+        files: [
+          'bundles/scripts/bitable-clientvars-cache.js',
+          'bundles/scripts/bitable-export.js',
+        ],
         target: { tabId },
         world: 'MAIN',
       })
       break
     case MenuItemId.DOWNLOAD_BITABLE_AS_HTML:
       await chrome.scripting.executeScript({
-        files: ['bundles/scripts/download-lark-docx-as-html.js'],
+        files: [
+          'bundles/scripts/bitable-clientvars-cache.js',
+          'bundles/scripts/bitable-export.js',
+        ],
         target: { tabId },
         world: 'MAIN',
       })

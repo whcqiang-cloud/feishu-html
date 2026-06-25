@@ -6,6 +6,7 @@ import {
   compare,
   isDefined,
   waitForFunction,
+  waitFor,
   OneHundred,
   Second,
   checkCanvasDimensions,
@@ -63,6 +64,10 @@ declare module 'mdast' {
   interface InlineCodeData {
     mentionUserId?: string
     parentBlockRecordId?: string
+  }
+
+  interface HtmlData {
+    fetchHtml?: () => Promise<string | null>
   }
 }
 
@@ -506,12 +511,20 @@ interface BitableBlock extends Block {
   }
 }
 
+interface SheetBlock extends Block {
+  type: BlockType.SHEET
+  snapshot: {
+    type: BlockType.SHEET
+    caption?: Caption
+  }
+  children: []
+}
+
 interface NotSupportedBlock extends Block {
   type:
     | BlockType.QUOTE
     | BlockType.CHAT_CARD
     | BlockType.MINDNOTE
-    | BlockType.SHEET
     | BlockType.FALLBACK
   children: []
 }
@@ -537,6 +550,7 @@ type Blocks =
   | Whiteboard
   | DiagramBlock
   | BitableBlock
+  | SheetBlock
   | View
   | File
   | IframeBlock
@@ -606,6 +620,553 @@ const extractBitableHtml = (bitableElement: HTMLElement): string => {
   )
 
   return gridElement?.outerHTML ?? bitableElement.innerHTML
+}
+
+const escapeSelectorAttributeValue = (value: string): string =>
+  value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+const sheetContainerSelector =
+  '[data-block-type="sheet"], [data-sheet-element="embeddedSheetContainer"], [class*="sheet-widget"], [class*="spreadsheet-widget"], [class*="embed-spreadsheet"], [class*="spreadsheet-wrap"]'
+
+const sheetCanvasSelector =
+  'canvas.spreadsheet-canvas, canvas[role="faster"], canvas'
+
+const sheetDataAttributes = (block: SheetBlock): string => {
+  const attrs = [
+    block.record?.id
+      ? `data-sheet-record-id="${escape(block.record.id)}"`
+      : null,
+    `data-sheet-block-id="${escape(String(block.id))}"`,
+  ].filter(isString)
+
+  return attrs.length > 0 ? ` ${attrs.join(' ')}` : ''
+}
+
+const findRenderedSheetElement = (block: SheetBlock): HTMLElement | null => {
+  const identifiers = [block.record?.id, String(block.id)].filter(isString)
+
+  for (const identifier of identifiers) {
+    const escapedIdentifier = escapeSelectorAttributeValue(identifier)
+    const selectors = [
+      `[data-block-id="${escapedIdentifier}"]`,
+      `[data-record-id="${escapedIdentifier}"]`,
+      `[data-recordid="${escapedIdentifier}"]`,
+      `[data-block-record-id="${escapedIdentifier}"]`,
+      `[data-node-id="${escapedIdentifier}"]`,
+      `[id="${escapedIdentifier}"]`,
+    ]
+
+    for (const selector of selectors) {
+      const element = document.querySelector<HTMLElement>(selector)
+      const sheetElement =
+        element?.closest<HTMLElement>(sheetContainerSelector) ?? element
+
+      if (sheetElement) {
+        return sheetElement
+      }
+    }
+  }
+
+  return null
+}
+
+const isVisibleElement = (element: HTMLElement): boolean => {
+  const style = window.getComputedStyle(element)
+  if (style.display === 'none' || style.visibility === 'hidden') return false
+
+  const rect = element.getBoundingClientRect()
+  const viewportHeight =
+    window.innerHeight || document.documentElement.clientHeight
+  const viewportWidth =
+    window.innerWidth || document.documentElement.clientWidth
+
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.right > 0 &&
+    rect.top < viewportHeight &&
+    rect.left < viewportWidth
+  )
+}
+
+const findVisibleRenderedSheetElement = (): HTMLElement | null => {
+  const sheetElements = Array.from(
+    document.querySelectorAll<HTMLElement>(sheetContainerSelector),
+  )
+  const canvasSheetElements = Array.from(
+    document.querySelectorAll<HTMLCanvasElement>(sheetCanvasSelector),
+  )
+    .map(canvas => canvas.closest<HTMLElement>(sheetContainerSelector))
+    .filter(isDefined)
+
+  return (
+    [...sheetElements, ...canvasSheetElements]
+      .filter((element, index, elements) => elements.indexOf(element) === index)
+      .filter(isVisibleElement)
+      .sort(
+        (a, b) =>
+          Math.abs(a.getBoundingClientRect().top) -
+          Math.abs(b.getBoundingClientRect().top),
+      )[0] ?? null
+  )
+}
+
+const isVisibleCanvas = (canvas: HTMLCanvasElement): boolean => {
+  const style = window.getComputedStyle(canvas)
+
+  return (
+    canvas.width > 0 &&
+    canvas.height > 0 &&
+    style.display !== 'none' &&
+    style.visibility !== 'hidden'
+  )
+}
+
+const getVisibleSheetCanvases = (
+  sheetElement: HTMLElement,
+): HTMLCanvasElement[] =>
+  Array.from(
+    sheetElement.querySelectorAll<HTMLCanvasElement>(sheetCanvasSelector),
+  ).filter(isVisibleCanvas)
+
+const getRenderableSheetCanvases = (
+  sheetElement: HTMLElement,
+): HTMLCanvasElement[] => getVisibleSheetCanvases(sheetElement)
+
+const snapshotCanvasSignatures = (canvases: HTMLCanvasElement[]): string[] =>
+  canvases.map(canvas => {
+    try {
+      return canvas.toDataURL('image/png')
+    } catch {
+      return ''
+    }
+  })
+
+const didCanvasSnapshotsChange = (
+  baseline: string[],
+  canvases: HTMLCanvasElement[],
+): boolean => {
+  const signatures = snapshotCanvasSignatures(canvases)
+
+  return signatures.some(
+    (signature, index) => signature !== '' && signature !== baseline[index],
+  )
+}
+
+const canvasSnapshotDimensions = (canvas: HTMLCanvasElement) => {
+  const rect = canvas.getBoundingClientRect()
+  const width = Math.round(rect.width || canvas.clientWidth || canvas.width)
+  const height = Math.round(rect.height || canvas.clientHeight || canvas.height)
+
+  return { rect, width, height }
+}
+
+const sheetSnapshotToHtml = (
+  dataUrl: string,
+  width: number,
+  height: number,
+): string | null => {
+  if (dataUrl === 'data:,' || width <= 0 || height <= 0) return null
+
+  return `<img class="sheet-snapshot" src="${dataUrl}" alt="Embedded sheet snapshot" width="${width.toFixed()}" height="${height.toFixed()}">`
+}
+
+const composeSheetCanvases = (canvases: HTMLCanvasElement[]): string | null => {
+  if (canvases.length === 0) return null
+
+  if (canvases.length === 1) {
+    const { width, height } = canvasSnapshotDimensions(canvases[0])
+    try {
+      return sheetSnapshotToHtml(
+        canvases[0].toDataURL('image/png'),
+        width,
+        height,
+      )
+    } catch {
+      return null
+    }
+  }
+
+  const canvasRects = canvases.map(canvas => ({
+    canvas,
+    ...canvasSnapshotDimensions(canvas),
+  }))
+  const left = Math.min(...canvasRects.map(({ rect }) => rect.left || 0))
+  const top = Math.min(...canvasRects.map(({ rect }) => rect.top || 0))
+  const right = Math.max(
+    ...canvasRects.map(({ rect, width }) => (rect.left || 0) + width),
+  )
+  const bottom = Math.max(
+    ...canvasRects.map(({ rect, height }) => (rect.top || 0) + height),
+  )
+  const width = Math.round(right - left)
+  const height = Math.round(bottom - top)
+  if (width <= 0 || height <= 0) return null
+
+  const scale = Math.max(
+    1,
+    ...canvasRects.map(({ canvas, width: cssWidth }) =>
+      cssWidth > 0 ? canvas.width / cssWidth : 1,
+    ),
+  )
+
+  const output = document.createElement('canvas')
+  output.width = Math.max(1, Math.round(width * scale))
+  output.height = Math.max(1, Math.round(height * scale))
+
+  const context = output.getContext('2d')
+  if (!context) return null
+
+  for (const {
+    canvas,
+    rect,
+    width: cssWidth,
+    height: cssHeight,
+  } of canvasRects) {
+    context.drawImage(
+      canvas,
+      Math.round(((rect.left || 0) - left) * scale),
+      Math.round(((rect.top || 0) - top) * scale),
+      Math.round(cssWidth * scale),
+      Math.round(cssHeight * scale),
+    )
+  }
+
+  try {
+    return sheetSnapshotToHtml(output.toDataURL('image/png'), width, height)
+  } catch {
+    return null
+  }
+}
+
+const isScrollableElement = (element: HTMLElement): boolean =>
+  element.scrollWidth > element.clientWidth + 1 ||
+  element.scrollHeight > element.clientHeight + 1
+
+const findSheetScrollContainer = (
+  sheetElement: HTMLElement,
+): HTMLElement | null => {
+  const canvases = getVisibleSheetCanvases(sheetElement)
+
+  for (const canvas of canvases) {
+    let element: HTMLElement | null = canvas.parentElement
+
+    while (element && sheetElement.contains(element)) {
+      if (isScrollableElement(element)) return element
+      if (element === sheetElement) break
+      element = element.parentElement
+    }
+  }
+
+  return (
+    [
+      sheetElement,
+      ...Array.from(sheetElement.querySelectorAll<HTMLElement>('*')),
+    ]
+      .filter(isScrollableElement)
+      .sort(
+        (a, b) =>
+          a.scrollWidth * a.scrollHeight - b.scrollWidth * b.scrollHeight,
+      )[0] ?? null
+  )
+}
+
+const buildScrollStops = (
+  viewportSize: number,
+  scrollSize: number,
+): number[] => {
+  const maxScroll = Math.max(0, scrollSize - viewportSize)
+  if (maxScroll === 0) return [0]
+
+  const step = Math.max(1, viewportSize)
+  const stops: number[] = []
+
+  for (let position = 0; position < maxScroll; position += step) {
+    stops.push(position)
+  }
+
+  stops.push(maxScroll)
+
+  return Array.from(new Set(stops))
+}
+
+const setScrollPosition = (
+  element: HTMLElement,
+  left: number,
+  top: number,
+): void => {
+  element.scrollLeft = left
+  element.scrollTop = top
+  element.dispatchEvent(new Event('scroll', { bubbles: true }))
+}
+
+const visibleCanvasBounds = (
+  canvas: HTMLCanvasElement,
+): { left: number; top: number; right: number; bottom: number } | null => {
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) return null
+
+  const { data, width, height } = context.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  )
+  let left = width
+  let top = height
+  let right = 0
+  let bottom = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = data[(y * width + x) * 4 + 3]
+      if (alpha <= 8) continue
+
+      left = Math.min(left, x)
+      top = Math.min(top, y)
+      right = Math.max(right, x + 1)
+      bottom = Math.max(bottom, y + 1)
+    }
+  }
+
+  if (right <= left || bottom <= top) return null
+
+  return { left, top, right, bottom }
+}
+
+const croppedSheetSnapshotToHtml = (
+  canvas: HTMLCanvasElement,
+  scale: number,
+): string | null => {
+  try {
+    const bounds = visibleCanvasBounds(canvas)
+    if (!bounds) return null
+
+    const width = bounds.right - bounds.left
+    const height = bounds.bottom - bounds.top
+    if (width <= 0 || height <= 0) return null
+
+    const croppedCanvas = document.createElement('canvas')
+    croppedCanvas.width = width
+    croppedCanvas.height = height
+
+    const context = croppedCanvas.getContext('2d')
+    if (!context) return null
+
+    context.drawImage(
+      canvas,
+      bounds.left,
+      bounds.top,
+      width,
+      height,
+      0,
+      0,
+      width,
+      height,
+    )
+
+    return sheetSnapshotToHtml(
+      croppedCanvas.toDataURL('image/png'),
+      width / scale,
+      height / scale,
+    )
+  } catch {
+    return null
+  }
+}
+
+const stitchScrollableSheetCanvases = async (
+  sheetElement: HTMLElement,
+): Promise<string | null> => {
+  const scrollContainer = findSheetScrollContainer(sheetElement)
+  if (!scrollContainer) return null
+
+  const hasHorizontalScroll =
+    scrollContainer.scrollWidth > scrollContainer.clientWidth + 1
+  const hasVerticalScroll =
+    scrollContainer.scrollHeight > scrollContainer.clientHeight + 1
+  if (!hasHorizontalScroll && !hasVerticalScroll) return null
+
+  const originalLeft = scrollContainer.scrollLeft
+  const originalTop = scrollContainer.scrollTop
+  const initialCanvases = getVisibleSheetCanvases(sheetElement)
+  if (initialCanvases.length === 0) return null
+
+  const initialSignatures = snapshotCanvasSignatures(initialCanvases)
+  const scrollLeftStops = buildScrollStops(
+    scrollContainer.clientWidth,
+    scrollContainer.scrollWidth,
+  )
+  const scrollTopStops = buildScrollStops(
+    scrollContainer.clientHeight,
+    scrollContainer.scrollHeight,
+  )
+
+  const initialScale = Math.max(
+    1,
+    ...initialCanvases.map(canvas => {
+      const { width } = canvasSnapshotDimensions(canvas)
+      return width > 0 ? canvas.width / width : 1
+    }),
+  )
+  const outputWidth = Math.max(
+    1,
+    Math.round(scrollContainer.scrollWidth * initialScale),
+  )
+  const outputHeight = Math.max(
+    1,
+    Math.round(scrollContainer.scrollHeight * initialScale),
+  )
+  const output = document.createElement('canvas')
+  output.width = outputWidth
+  output.height = outputHeight
+
+  const context = output.getContext('2d', { willReadFrequently: true })
+  if (!context) return null
+
+  try {
+    const containerRect = scrollContainer.getBoundingClientRect()
+    const initialCanvasRects = initialCanvases.map(canvas => {
+      const { rect } = canvasSnapshotDimensions(canvas)
+      return rect
+    })
+    const originLeft = Math.min(
+      ...initialCanvasRects.map(rect => rect.left - containerRect.left),
+    )
+    const originTop = Math.min(
+      ...initialCanvasRects.map(rect => rect.top - containerRect.top),
+    )
+    let didScrollRevealNewPixels = false
+
+    for (const top of scrollTopStops) {
+      for (const left of scrollLeftStops) {
+        setScrollPosition(scrollContainer, left, top)
+        await waitFor(0.25 * Second)
+
+        const canvases = getVisibleSheetCanvases(sheetElement)
+        if (canvases.length === 0) continue
+        if (
+          left !== originalLeft ||
+          top !== originalTop ||
+          canvases.length !== initialCanvases.length
+        ) {
+          didScrollRevealNewPixels ||= didCanvasSnapshotsChange(
+            initialSignatures,
+            canvases,
+          )
+        }
+
+        for (const canvas of canvases) {
+          const { rect, width, height } = canvasSnapshotDimensions(canvas)
+          if (width <= 0 || height <= 0) continue
+
+          const scale = width > 0 ? canvas.width / width : initialScale
+          context.drawImage(
+            canvas,
+            Math.round(
+              (left + rect.left - containerRect.left - originLeft) * scale,
+            ),
+            Math.round(
+              (top + rect.top - containerRect.top - originTop) * scale,
+            ),
+            Math.round(width * scale),
+            Math.round(height * scale),
+          )
+        }
+      }
+    }
+
+    if (!didScrollRevealNewPixels) return null
+
+    const croppedSnapshot = croppedSheetSnapshotToHtml(output, initialScale)
+    if (croppedSnapshot) return croppedSnapshot
+
+    return sheetSnapshotToHtml(
+      output.toDataURL('image/png'),
+      scrollContainer.scrollWidth,
+      scrollContainer.scrollHeight,
+    )
+  } catch {
+    return null
+  } finally {
+    setScrollPosition(scrollContainer, originalLeft, originalTop)
+  }
+}
+
+const extractSheetHtml = (sheetElement: HTMLElement): string | null => {
+  const tableElement = sheetElement.querySelector('table')
+  if (tableElement) return tableElement.outerHTML
+
+  const gridElement = sheetElement.querySelector<HTMLElement>(
+    '[role="grid"]:not(canvas), [role="table"]:not(canvas), table[role="grid"], table[role="table"]',
+  )
+  if (gridElement) return gridElement.outerHTML
+
+  const canvasSnapshot = composeSheetCanvases(
+    getRenderableSheetCanvases(sheetElement),
+  )
+  if (canvasSnapshot) return canvasSnapshot
+
+  const fallbackGridElement = sheetElement.querySelector<HTMLElement>(
+    '[class*="grid"]:not(canvas), [class*="table"]:not(canvas), [class*="Table"]:not(canvas), [class*="Spreadsheet"]:not(canvas), [class*="spreadsheet"]:not(canvas)',
+  )
+
+  return fallbackGridElement?.outerHTML ?? null
+}
+
+const extractSheetHtmlAsync = async (
+  sheetElement: HTMLElement,
+): Promise<string | null> => {
+  const tableElement = sheetElement.querySelector('table')
+  if (tableElement) return tableElement.outerHTML
+
+  const gridElement = sheetElement.querySelector<HTMLElement>(
+    '[role="grid"]:not(canvas), [role="table"]:not(canvas), table[role="grid"], table[role="table"]',
+  )
+  if (gridElement) return gridElement.outerHTML
+
+  return (
+    (await stitchScrollableSheetCanvases(sheetElement)) ??
+    extractSheetHtml(sheetElement)
+  )
+}
+
+const hasRenderableSheetContent = (sheetElement: HTMLElement): boolean =>
+  Boolean(
+    sheetElement.querySelector(
+      'table, [role="grid"]:not(canvas), [role="table"]:not(canvas)',
+    ) ?? getVisibleSheetCanvases(sheetElement)[0],
+  )
+
+const sheetToHtml = (
+  block: SheetBlock,
+  sheetElement: HTMLElement | null,
+): string => {
+  const caption = evaluateAlt(block.snapshot.caption)
+  const captionHtml = caption
+    ? `<figcaption>${escape(caption)}</figcaption>`
+    : ''
+  const contentHtml =
+    (sheetElement ? extractSheetHtml(sheetElement) : null) ??
+    `<p class="sheet-missing">Sheet content is not loaded in the current page.</p>`
+
+  return `<figure class="sheet"${sheetDataAttributes(block)}>${captionHtml}<div class="sheet-wrapper">${contentHtml}</div></figure>`
+}
+
+const sheetToHtmlAsync = async (
+  block: SheetBlock,
+  sheetElement: HTMLElement | null,
+): Promise<string> => {
+  const caption = evaluateAlt(block.snapshot.caption)
+  const captionHtml = caption
+    ? `<figcaption>${escape(caption)}</figcaption>`
+    : ''
+  const contentHtml =
+    (sheetElement ? await extractSheetHtmlAsync(sheetElement) : null) ??
+    `<p class="sheet-missing">Sheet content is not loaded in the current page.</p>`
+
+  return `<figure class="sheet"${sheetDataAttributes(block)}>${captionHtml}<div class="sheet-wrapper">${contentHtml}</div></figure>`
 }
 
 /**
@@ -1181,9 +1742,11 @@ type Mutate<T extends Block> = T extends PageBlock
                           ? mdast.Html
                           : T extends BitableBlock
                             ? mdast.Html
-                            : T extends TextDrawingBlock | TimelineBlock
-                              ? mdast.Code
-                              : null
+                            : T extends SheetBlock
+                              ? mdast.Html
+                              : T extends TextDrawingBlock | TimelineBlock
+                                ? mdast.Code
+                                : null
 
 interface TransformerOptions {
   /**
@@ -1775,6 +2338,59 @@ export class Transformer {
         const html: mdast.Html = {
           type: 'html',
           value: `<figure class="bitable">${captionHtml}<div class="bitable-wrapper">${contentHtml}</div></figure>`,
+        }
+
+        return html
+      }
+      case BlockType.SHEET: {
+        if (!this.options.bitable) return null
+
+        const { locateBlockWithRecordId = () => Promise.resolve(false) } =
+          this.options
+        const sheetElement = findRenderedSheetElement(block)
+
+        const html: mdast.Html = {
+          type: 'html',
+          value: sheetToHtml(block, sheetElement),
+          data: {
+            fetchHtml: async () => {
+              let locatedBlock = false
+              if (block.record?.id) {
+                locatedBlock = await locateBlockWithRecordId(block.record.id)
+              }
+
+              try {
+                await waitForFunction(
+                  () => {
+                    const exactElement = findRenderedSheetElement(block)
+                    if (
+                      exactElement &&
+                      hasRenderableSheetContent(exactElement)
+                    ) {
+                      return true
+                    }
+
+                    const visibleElement = findVisibleRenderedSheetElement()
+
+                    return (
+                      locatedBlock &&
+                      visibleElement !== null &&
+                      hasRenderableSheetContent(visibleElement)
+                    )
+                  },
+                  { timeout: 3 * Second },
+                )
+              } catch {
+                // Keep the placeholder if the sheet is still not rendered.
+              }
+
+              return await sheetToHtmlAsync(
+                block,
+                findRenderedSheetElement(block) ??
+                  (locatedBlock ? findVisibleRenderedSheetElement() : null),
+              )
+            },
+          },
         }
 
         return html

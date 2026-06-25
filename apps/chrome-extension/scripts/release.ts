@@ -17,10 +17,16 @@ const main = async () => {
 
   console.log(`Packaging release: ${zipName}`)
 
-  const result = spawnSync('zip', ['-r', '-q', zipPath, '.'], {
-    cwd: distDir,
-    stdio: 'inherit',
-  })
+  await fs.rm(zipPath, { force: true })
+
+  const result = spawnSync(
+    'zip',
+    ['-r', '-q', zipPath, '.', '-x', '.DS_Store', '*/.DS_Store'],
+    {
+      cwd: distDir,
+      stdio: 'inherit',
+    },
+  )
 
   if (result.status !== 0) {
     const errorMessage = result.error ? result.error.message : 'unknown error'

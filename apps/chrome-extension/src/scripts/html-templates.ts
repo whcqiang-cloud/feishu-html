@@ -76,7 +76,10 @@ const CSS_STYLES = /* css */ `
     background-color: var(--color-code-bg);
     border-radius: 6px;
     padding: 16px;
-    overflow-x: auto;
+    overflow-x: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     font-size: 0.875em;
     line-height: 1.45;
   }
@@ -84,6 +87,12 @@ const CSS_STYLES = /* css */ `
   code {
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
     font-size: 0.875em;
+  }
+
+  pre code {
+    white-space: inherit;
+    overflow-wrap: inherit;
+    word-break: inherit;
   }
 
   :not(pre) > code {
@@ -153,19 +162,33 @@ const CSS_STYLES = /* css */ `
     overflow-x: auto;
   }
 
-  figure.bitable figcaption {
+  figure.sheet {
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+
+  figure.bitable figcaption,
+  figure.sheet figcaption {
     font-size: 0.9em;
     color: var(--color-text-secondary);
     margin-bottom: 8px;
     text-align: center;
   }
 
-  .bitable-wrapper {
+  .bitable-wrapper,
+  .sheet-wrapper {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  .bitable-wrapper table {
+  .sheet-snapshot {
+    max-width: 100%;
+    height: auto;
+    margin: 0;
+  }
+
+  .bitable-wrapper table,
+  .sheet-wrapper table {
     display: table;
     border-collapse: collapse;
     width: auto;
@@ -173,14 +196,17 @@ const CSS_STYLES = /* css */ `
   }
 
   .bitable-wrapper table th,
-  .bitable-wrapper table td {
+  .bitable-wrapper table td,
+  .sheet-wrapper table th,
+  .sheet-wrapper table td {
     border: 1px solid var(--color-border);
     padding: 6px 12px;
     text-align: left;
     white-space: nowrap;
   }
 
-  .bitable-wrapper table th {
+  .bitable-wrapper table th,
+  .sheet-wrapper table th {
     background-color: var(--color-code-bg);
     font-weight: 600;
     position: sticky;

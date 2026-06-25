@@ -170,28 +170,26 @@ const processTableSpans = (table: mdast.Table): void => {
       columnIndex < row.children.length;
       columnIndex++
     ) {
-      // If this position is covered by a previous spanning cell, skip it
       if (occupied[rowIndex]?.[columnIndex]) continue
 
       const cell = row.children[columnIndex]
-      newCells.push(cell)
-
       const rowSpan = cell.data?.rowSpan ?? 1
       const colSpan = cell.data?.colSpan ?? 1
 
       if (rowSpan > 1 || colSpan > 1) {
-        // Ensure data and hProperties objects exist
-        cell.data ??= {}
-        cell.data.hProperties ??= {}
+        const newData = {
+          ...cell.data,
+          hProperties: {
+            ...cell.data?.hProperties,
+            ...(rowSpan > 1 ? { rowSpan } : {}),
+            ...(colSpan > 1 ? { colSpan } : {}),
+          },
+        }
+        const newCell = { ...cell, data: newData }
+        newCells.push(newCell)
 
-        // Add HTML span properties for correct rendering
-        if (rowSpan > 1) cell.data.hProperties['rowSpan'] = rowSpan
-        if (colSpan > 1) cell.data.hProperties['colSpan'] = colSpan
-
-        // Mark the area covered by this spanning cell as occupied
         for (let i = 0; i < rowSpan; i++) {
           for (let j = 0; j < colSpan; j++) {
-            // Skip the current cell itself
             if (i === 0 && j === 0) continue
             const targetRow = rowIndex + i
             const targetCol = columnIndex + j
@@ -199,11 +197,13 @@ const processTableSpans = (table: mdast.Table): void => {
             occupied[targetRow][targetCol] = true
           }
         }
+      } else {
+        newCells.push(cell)
       }
     }
 
-    // Update row children with only the non-redundant cells
-    row.children = newCells
+    const newRow = { ...row, children: newCells }
+    table.children[rowIndex] = newRow
   }
 }
 

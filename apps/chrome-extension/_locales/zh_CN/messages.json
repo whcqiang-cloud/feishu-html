@@ -11,6 +11,12 @@
   "download_docx_as_html": {
     "message": "下载为 HTML"
   },
+  "download_bitable_as_md": {
+    "message": "下载多维表格为 Markdown"
+  },
+  "download_bitable_as_html": {
+    "message": "下载多维表格为 HTML"
+  },
   "help_and_feedback": {
     "message": "帮助和反馈"
   }

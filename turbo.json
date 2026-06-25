@@ -4,7 +4,7 @@
     "build": {
       "outputs": ["dist/**"],
       "dependsOn": ["^build"],
-      "inputs": ["apps/chrome-extension/src/**/*", "packages/**/src/**/*"],
+      "inputs": ["$TURBO_DEFAULT$", "src/**/*"],
       "cache": true
     },
     "type-check": {

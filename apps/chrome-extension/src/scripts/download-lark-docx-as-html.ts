@@ -413,6 +413,28 @@ function convertMathNodes(root: mdast.Root): void {
   walk(root.children)
 }
 
+async function resolveDynamicHtmlNodes(root: mdast.Root): Promise<void> {
+  async function walk(nodes: mdast.Nodes[]): Promise<void> {
+    for (const node of nodes) {
+      if (node.type === 'html') {
+        const fetchHtml = node.data?.fetchHtml
+        if (fetchHtml) {
+          const html = await fetchHtml()
+          if (html) {
+            node.value = html
+          }
+        }
+      }
+
+      if ('children' in node && Array.isArray(node.children)) {
+        await walk(node.children as mdast.Nodes[])
+      }
+    }
+  }
+
+  await walk(root.children)
+}
+
 function mdastToHtml(root: mdast.Root): string {
   // Preprocess math nodes before toHast (which would discard them)
   convertMathNodes(root)
@@ -624,13 +646,16 @@ const main = async (options: { signal?: AbortSignal } = {}) => {
     // Step 2: Transform tables to HTML
     transformTableBySettings(tableWithParents, settings)
 
-    // Step 3: Collect attachment info (no download, just name + token)
+    // Step 3: Resolve dynamic HTML nodes such as embedded sheets.
+    await resolveDynamicHtmlNodes(root)
+
+    // Step 4: Collect attachment info (no download, just name + token)
     const attachments = collectAttachmentInfo(files)
 
-    // Step 4: Convert mdast to HTML string
+    // Step 5: Convert mdast to HTML string
     const bodyHtml = mdastToHtml(root)
 
-    // Step 5: Wrap into full HTML document
+    // Step 6: Wrap into full HTML document
     const fullHtml = wrapIntoFullHtml({
       pageTitle: docx.pageTitle ?? 'Document',
       bodyHtml,
@@ -640,6 +665,9 @@ const main = async (options: { signal?: AbortSignal } = {}) => {
     })
 
     recoverScrollTop?.()
+
+    // Remove the "still saving" toast before returning
+    Toast.remove(ToastKey.DOWNLOADING)
 
     return new Blob([fullHtml], { type: 'text/html' })
   }

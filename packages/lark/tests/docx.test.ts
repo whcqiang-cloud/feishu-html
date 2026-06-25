@@ -1,4 +1,4 @@
-import { test, describe, expect, it } from 'vitest'
+import { test, describe, expect, it, afterEach } from 'vitest'
 import type * as mdast from 'mdast'
 import {
   BlockType,
@@ -6,9 +6,14 @@ import {
   mergeListItems,
   mergePhrasingContents,
   transformOperationsToPhrasingContents,
+  type PageBlock,
 } from '../src/docx'
 
 const transformer = new Transformer()
+
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 describe('mergeListItems()', () => {
   test('simple example', () => {
@@ -1511,6 +1516,570 @@ describe('inline math', () => {
           ],
         },
       ],
+    })
+  })
+})
+
+describe('embedded sheet', () => {
+  test('exports the rendered sheet html when enabled', () => {
+    document.body.innerHTML = `
+      <section data-block-type="sheet">
+        <div data-block-id="sheet-block">
+          <table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Alice</td></tr></tbody></table>
+        </div>
+      </section>
+    `
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    const { root } = new Transformer({ bitable: true }).transform(page)
+
+    const [sheet] = root.children
+
+    expect(sheet.type).toBe('html')
+    expect(sheet).toMatchObject({
+      value:
+        '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Alice</td></tr></tbody></table></div></figure>',
+    })
+  })
+
+  test('snapshots a canvas-rendered sheet as an inline image', () => {
+    document.body.innerHTML = `
+      <section data-block-type="sheet">
+        <div data-block-id="sheet-block">
+          <canvas class="spreadsheet-canvas" width="10" height="12"></canvas>
+        </div>
+      </section>
+    `
+
+    const canvas = document.querySelector('canvas')
+    if (!canvas) throw new Error('Expected canvas fixture')
+    canvas.width = 10
+    canvas.height = 12
+    canvas.toDataURL = () => 'data:image/png;base64,sheet'
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    const { root } = new Transformer({ bitable: true }).transform(page)
+
+    const [sheet] = root.children
+
+    expect(sheet.type).toBe('html')
+    expect(sheet).toMatchObject({
+      value:
+        '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><img class="sheet-snapshot" src="data:image/png;base64,sheet" alt="Embedded sheet snapshot" width="10" height="12"></div></figure>',
+    })
+  })
+
+  test('exports a canvas snapshot without reading source canvas pixels', () => {
+    document.body.innerHTML = `
+      <section data-block-type="sheet">
+        <div data-block-id="sheet-block">
+          <canvas class="spreadsheet-canvas" width="10" height="12"></canvas>
+        </div>
+      </section>
+    `
+
+    const canvas = document.querySelector('canvas')
+    if (!canvas) throw new Error('Expected canvas fixture')
+
+    canvas.width = 10
+    canvas.height = 12
+    canvas.toDataURL = () => 'data:image/png;base64,sheet'
+    canvas.getContext = () => {
+      throw new Error('Source sheet canvas pixels should not be read')
+    }
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    const { root } = new Transformer({ bitable: true }).transform(page)
+
+    const [sheet] = root.children
+
+    expect(sheet.type).toBe('html')
+    expect(sheet).toMatchObject({
+      value:
+        '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><img class="sheet-snapshot" src="data:image/png;base64,sheet" alt="Embedded sheet snapshot" width="10" height="12"></div></figure>',
+    })
+  })
+
+  test('does not export loading-only sheet dom as content', () => {
+    document.body.innerHTML = `
+      <section data-block-type="sheet">
+        <div data-block-id="sheet-block">
+          <div class="docx-block-loading-container"></div>
+          <div class="sheet-block-container"><div></div></div>
+        </div>
+      </section>
+    `
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    const { root } = new Transformer({ bitable: true }).transform(page)
+
+    const [sheet] = root.children
+
+    expect(sheet.type).toBe('html')
+    expect(sheet).toMatchObject({
+      value:
+        '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><p class="sheet-missing">Sheet content is not loaded in the current page.</p></div></figure>',
+    })
+  })
+
+  test('uses the visible sheet after locating a block without stable DOM ids', async () => {
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    const { root } = new Transformer({
+      bitable: true,
+      locateBlockWithRecordId: () => {
+        document.body.innerHTML = `
+          <section data-sheet-element="embeddedSheetContainer">
+            <canvas class="spreadsheet-canvas" width="10" height="12"></canvas>
+          </section>
+        `
+
+        const section = document.querySelector('section')
+        if (!section) throw new Error('Expected sheet fixture')
+        section.getBoundingClientRect = () =>
+          ({
+            width: 10,
+            height: 12,
+            top: 0,
+            left: 0,
+            right: 10,
+            bottom: 12,
+          }) as DOMRect
+
+        const canvas = document.querySelector('canvas')
+        if (!canvas) throw new Error('Expected canvas fixture')
+        canvas.width = 10
+        canvas.height = 12
+        canvas.toDataURL = () => 'data:image/png;base64,visible-sheet'
+
+        return Promise.resolve(true)
+      },
+    }).transform(page)
+
+    const [sheet] = root.children
+    expect(sheet.type).toBe('html')
+
+    const html = await (sheet as mdast.Html).data?.fetchHtml?.()
+
+    expect(html).toBe(
+      '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><img class="sheet-snapshot" src="data:image/png;base64,visible-sheet" alt="Embedded sheet snapshot" width="10" height="12"></div></figure>',
+    )
+  })
+
+  test('stitches a scrollable canvas-rendered sheet', async () => {
+    const drawCalls: unknown[][] = []
+    const originalGetContextDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      'getContext',
+    )
+    const originalToDataURLDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      'toDataURL',
+    )
+
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: function getContext(this: HTMLCanvasElement) {
+        if (this.classList.contains('spreadsheet-canvas')) {
+          return {
+            getImageData: () => ({
+              data: new Uint8ClampedArray([0, 0, 0, 255]),
+            }),
+          }
+        }
+
+        return {
+          drawImage: (...args: unknown[]) => {
+            drawCalls.push(args)
+          },
+        }
+      },
+    })
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
+      configurable: true,
+      value: function toDataURL(this: HTMLCanvasElement) {
+        return this.classList.contains('spreadsheet-canvas')
+          ? `data:image/png;base64,viewport-${String(scrollLeft)}`
+          : 'data:image/png;base64,stitched'
+      },
+    })
+
+    document.body.innerHTML = `
+      <section data-block-type="sheet">
+        <div data-block-id="sheet-block">
+          <div class="scrollable-wrapper">
+            <canvas class="spreadsheet-canvas" width="100" height="50"></canvas>
+          </div>
+        </div>
+      </section>
+    `
+
+    const scrollable = document.querySelector<HTMLElement>(
+      '.scrollable-wrapper',
+    )
+    const canvas = document.querySelector('canvas')
+    if (!scrollable || !canvas) throw new Error('Expected sheet fixtures')
+
+    let scrollLeft = 0
+    Object.defineProperties(scrollable, {
+      clientWidth: { value: 100, configurable: true },
+      clientHeight: { value: 50, configurable: true },
+      scrollWidth: { value: 200, configurable: true },
+      scrollHeight: { value: 50, configurable: true },
+      scrollLeft: {
+        get: () => scrollLeft,
+        set: (value: number) => {
+          scrollLeft = value
+        },
+        configurable: true,
+      },
+    })
+    scrollable.getBoundingClientRect = () =>
+      ({
+        width: 100,
+        height: 50,
+        top: 0,
+        left: 0,
+        right: 100,
+        bottom: 50,
+      }) as DOMRect
+
+    canvas.width = 100
+    canvas.height = 50
+    canvas.getBoundingClientRect = () =>
+      ({
+        width: 100,
+        height: 50,
+        top: 0,
+        left: 0,
+        right: 100,
+        bottom: 50,
+      }) as DOMRect
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    try {
+      const { root } = new Transformer({ bitable: true }).transform(page)
+
+      const [sheet] = root.children
+      expect(sheet.type).toBe('html')
+
+      const html = await (sheet as mdast.Html).data?.fetchHtml?.()
+
+      expect(html).toBe(
+        '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><img class="sheet-snapshot" src="data:image/png;base64,stitched" alt="Embedded sheet snapshot" width="200" height="50"></div></figure>',
+      )
+      expect(drawCalls).toHaveLength(2)
+      expect(drawCalls.map(call => call.slice(1, 3))).toStrictEqual([
+        [0, 0],
+        [100, 0],
+      ])
+    } finally {
+      if (originalGetContextDescriptor) {
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          'getContext',
+          originalGetContextDescriptor,
+        )
+      }
+      if (originalToDataURLDescriptor) {
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          'toDataURL',
+          originalToDataURLDescriptor,
+        )
+      }
+    }
+  })
+
+  test('falls back to the visible sheet snapshot when scroll does not change canvas content', async () => {
+    const originalGetContextDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      'getContext',
+    )
+    const originalToDataURLDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      'toDataURL',
+    )
+
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: function getContext(this: HTMLCanvasElement) {
+        if (this.classList.contains('spreadsheet-canvas')) {
+          return {
+            getImageData: () => ({
+              data: new Uint8ClampedArray([0, 0, 0, 255]),
+            }),
+          }
+        }
+
+        return {
+          drawImage: () => undefined,
+        }
+      },
+    })
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
+      configurable: true,
+      value: function toDataURL(this: HTMLCanvasElement) {
+        return this.classList.contains('spreadsheet-canvas')
+          ? 'data:image/png;base64,viewport'
+          : 'data:image/png;base64,stitched'
+      },
+    })
+
+    document.body.innerHTML = `
+      <section data-block-type="sheet">
+        <div data-block-id="sheet-block">
+          <div class="scrollable-wrapper">
+            <canvas class="spreadsheet-canvas" width="100" height="50"></canvas>
+          </div>
+        </div>
+      </section>
+    `
+
+    const scrollable = document.querySelector<HTMLElement>(
+      '.scrollable-wrapper',
+    )
+    const canvas = document.querySelector('canvas')
+    if (!scrollable || !canvas) throw new Error('Expected sheet fixtures')
+
+    let scrollLeft = 0
+    Object.defineProperties(scrollable, {
+      clientWidth: { value: 100, configurable: true },
+      clientHeight: { value: 50, configurable: true },
+      scrollWidth: { value: 200, configurable: true },
+      scrollHeight: { value: 50, configurable: true },
+      scrollLeft: {
+        get: () => scrollLeft,
+        set: (value: number) => {
+          scrollLeft = value
+        },
+        configurable: true,
+      },
+    })
+    scrollable.getBoundingClientRect = () =>
+      ({
+        width: 100,
+        height: 50,
+        top: 0,
+        left: 0,
+        right: 100,
+        bottom: 50,
+      }) as DOMRect
+
+    canvas.width = 100
+    canvas.height = 50
+    canvas.getBoundingClientRect = () =>
+      ({
+        width: 100,
+        height: 50,
+        top: 0,
+        left: 25,
+        right: 125,
+        bottom: 50,
+      }) as DOMRect
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          record: {
+            id: 'sheet-block',
+          },
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    try {
+      const { root } = new Transformer({ bitable: true }).transform(page)
+
+      const [sheet] = root.children
+      expect(sheet.type).toBe('html')
+
+      const html = await (sheet as mdast.Html).data?.fetchHtml?.()
+
+      expect(html).toBe(
+        '<figure class="sheet" data-sheet-record-id="sheet-block" data-sheet-block-id="42"><div class="sheet-wrapper"><img class="sheet-snapshot" src="data:image/png;base64,viewport" alt="Embedded sheet snapshot" width="100" height="50"></div></figure>',
+      )
+    } finally {
+      if (originalGetContextDescriptor) {
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          'getContext',
+          originalGetContextDescriptor,
+        )
+      }
+      if (originalToDataURLDescriptor) {
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          'toDataURL',
+          originalToDataURLDescriptor,
+        )
+      }
+    }
+  })
+
+  test('can locate a rendered sheet by block id when record id is absent', () => {
+    document.body.innerHTML = `
+      <div data-block-type="sheet">
+        <div data-block-id="42" role="grid"><div role="row"><div role="columnheader">Name</div></div></div>
+      </div>
+    `
+
+    const page: PageBlock = {
+      id: 1,
+      type: BlockType.PAGE,
+      snapshot: {
+        type: BlockType.PAGE,
+      },
+      children: [
+        {
+          id: 42,
+          type: BlockType.SHEET,
+          snapshot: {
+            type: BlockType.SHEET,
+          },
+          children: [],
+        },
+      ],
+    }
+
+    const { root } = new Transformer({ bitable: true }).transform(page)
+
+    const [sheet] = root.children
+
+    expect(sheet.type).toBe('html')
+    expect(sheet).toMatchObject({
+      value:
+        '<figure class="sheet" data-sheet-block-id="42"><div class="sheet-wrapper"><div data-block-id="42" role="grid"><div role="row"><div role="columnheader">Name</div></div></div></div></figure>',
     })
   })
 })
