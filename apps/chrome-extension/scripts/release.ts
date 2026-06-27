@@ -21,7 +21,16 @@ const main = async () => {
 
   const result = spawnSync(
     'zip',
-    ['-r', '-q', zipPath, '.', '-x', '.DS_Store', '*/.DS_Store'],
+    [
+      '-r',
+      '-q',
+      zipPath,
+      '.',
+      '-x',
+      '.DS_Store',
+      '*/.DS_Store',
+      '**/.DS_Store',
+    ],
     {
       cwd: distDir,
       stdio: 'inherit',
