@@ -2,17 +2,17 @@ import i18next from 'i18next'
 
 if (import.meta.env.DEV) {
   console.log('[CDC] copy-md script loaded, href:', location.href)
-  window.addEventListener('error', e =>
-    { console.error(
+  window.addEventListener('error', e => {
+    console.error(
       '[CDC] Global error:',
       e.error || e.message,
       e.filename,
       e.lineno,
-    ); },
-  )
-  window.addEventListener('unhandledrejection', e =>
-    { console.error('[CDC] Unhandled rejection:', e.reason); },
-  )
+    )
+  })
+  window.addEventListener('unhandledrejection', e => {
+    console.error('[CDC] Unhandled rejection:', e.reason)
+  })
 }
 
 import { Docx, docx, doc, Toast } from '@dolphin/lark'

@@ -7,17 +7,17 @@ if (import.meta.env.DEV) {
     'readyState:',
     document.readyState,
   )
-  window.addEventListener('error', e =>
-    { console.error(
+  window.addEventListener('error', e => {
+    console.error(
       '[CDC] Global error:',
       e.error || e.message,
       e.filename,
       e.lineno,
-    ); },
-  )
-  window.addEventListener('unhandledrejection', e =>
-    { console.error('[CDC] Unhandled rejection:', e.reason); },
-  )
+    )
+  })
+  window.addEventListener('unhandledrejection', e => {
+    console.error('[CDC] Unhandled rejection:', e.reason)
+  })
 }
 
 // Persistent debug panel at bottom of screen
