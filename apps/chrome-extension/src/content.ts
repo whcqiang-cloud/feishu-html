@@ -36,7 +36,7 @@ const initButtons = (): void => {
     let outerdocbodyChildren = ''
     if (outerdocbody) {
       outerdocbodyChildren = Array.from(outerdocbody.children)
-        .map(c => `${c.tagName}.${String(c.className).split(' ')[0]}`)
+        .map(c => `${c.tagName}.${(c.className || '').split(' ')[0]}`)
         .slice(0, 10)
         .join(', ')
       const text = (outerdocbody.textContent || '')
@@ -48,16 +48,16 @@ const initButtons = (): void => {
     let suiteBodyChildren = ''
     if (suiteBody) {
       suiteBodyChildren = Array.from(suiteBody.children)
-        .map(c => `${c.tagName}.${String(c.className).split(' ')[0]}`)
+        .map(c => `${c.tagName}.${(c.className || '').split(' ')[0]}`)
         .slice(0, 5)
         .join(', ')
     }
 
     overlay.innerHTML = [
       `PATH: ${location.pathname}`,
-      `.outerdocbody: ${!!outerdocbody}`,
-      `.suite-body: ${!!suiteBody}`,
-      `.etherpad-client-container: ${!!etherpadClient}`,
+      `.outerdocbody: ${outerdocbody ? 'true' : 'false'}`,
+      `.suite-body: ${suiteBody ? 'true' : 'false'}`,
+      `.etherpad-client-container: ${etherpadClient ? 'true' : 'false'}`,
       `.outerdocbody.children: [${outerdocbodyChildren}]`,
       `.suite-body.children: [${suiteBodyChildren}]`,
     ].join('<br>')

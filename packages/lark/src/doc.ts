@@ -1,13 +1,7 @@
 import type * as mdast from 'mdast'
 import type { TableWithParent } from './docx'
 import { isDoc, isDocx } from './env'
-import {
-  isBlockquoteContent,
-  isParent,
-  isPhrasingContent,
-  isRootContent,
-  isTableCell,
-} from './utils/mdast'
+import { isPhrasingContent, isRootContent } from './utils/mdast'
 
 // ---------------------------------------------------------------------------
 // Shared image collector — passed through the DOM traversal so every parsed
@@ -106,7 +100,7 @@ function findEditorContainer(): HTMLElement | null {
 
   for (const sel of selectors) {
     const el = document.querySelector<HTMLElement>(sel)
-    if (el && el.querySelector(contentSelector)) {
+    if (el?.querySelector(contentSelector)) {
       console.log(`[doc parser] Found container via selector: ${sel}`)
       return el
     }
@@ -132,7 +126,7 @@ function findEditorContainer(): HTMLElement | null {
     const blocks = el.querySelectorAll(
       'h1,h2,h3,h4,h5,h6,p,img,table,ul,ol,pre,blockquote,li,div[class*="ace-line"]',
     ).length
-    const textLen = el.textContent?.trim().length ?? 0
+    const textLen = (el.textContent || '').trim().length
 
     // Need at least some content
     if (blocks === 0 && textLen < 50) continue
@@ -147,7 +141,7 @@ function findEditorContainer(): HTMLElement | null {
 
   if (bestEl) {
     console.log(
-      `[doc parser] Found container via fallback, tag=${bestEl.tagName}, class=${bestEl.className?.substring(0, 80)}, score=${bestScore}`,
+      `[doc parser] Found container via fallback, tag=${bestEl.tagName}, class=${bestEl.className.substring(0, 80)}, score=${bestScore.toString()}`,
     )
   } else {
     console.warn(
@@ -187,7 +181,7 @@ function getPageTitle(): string {
 
   // Last resort: first non-empty line in editor is the title
   const innerdocbody =
-    document.getElementById('innerdocbody') ||
+    document.getElementById('innerdocbody') ??
     document.querySelector<HTMLElement>('.innerdocbody')
   if (innerdocbody) {
     for (const child of Array.from(innerdocbody.children) as HTMLElement[]) {
@@ -323,11 +317,10 @@ function getImageSource(imgEl: HTMLImageElement): string {
     .filter((src): src is string => !!src)
     .map(normalizeImageSource)
 
-  return (
-    candidates.find(src => !isPlaceholderImageSource(src)) ??
-    candidates[0] ??
-    ''
-  )
+  const validSrc = candidates.find(src => !isPlaceholderImageSource(src))
+  if (validSrc) return validSrc
+  if (candidates.length > 0) return candidates[0]
+  return ''
 }
 
 function imageNodeFromSource(
@@ -343,7 +336,7 @@ function imageNodeFromSource(
     alt: cleanText(alt),
     data: {
       name: getImageFilename(src, fallbackName),
-      fetchSources: async () => ({ originSrc: src, src }),
+      fetchSources: () => ({ originSrc: src, src }),
     },
   }
 }
@@ -389,7 +382,7 @@ function isMeaningfulSvg(svgEl: SVGElement): boolean {
 
   const source = svgEl.outerHTML
   const { width, height } = svgViewBoxSize(svgEl)
-  const textContent = cleanText(svgEl.textContent ?? '')
+  const textContent = cleanText(svgEl.textContent || '')
   const hasEmbeddedContent =
     svgEl.querySelector('foreignObject, image') !== null ||
     textContent.length > 0
@@ -438,7 +431,7 @@ function elementToSvgSnapshot(el: HTMLElement): string | null {
 
   const html = new XMLSerializer().serializeToString(el.cloneNode(true))
   const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width.toString()}" height="${height.toString()}">`,
     `<foreignObject width="100%" height="100%">${html}</foreignObject>`,
     '</svg>',
   ].join('')
@@ -485,7 +478,7 @@ function parseLegacyVisualBlock(
 
   const image = imageNodeFromSource(
     src,
-    cleanText(el.textContent ?? ''),
+    cleanText(el.textContent || ''),
     'drawing',
   )
   if (!image) return null
@@ -607,7 +600,7 @@ function processInlineElement(
     case 'code': {
       const parentTag = el.parentElement?.tagName.toLowerCase()
       if (parentTag === 'pre') return null
-      const value = cleanText(el.textContent ?? '')
+      const value = cleanText(el.textContent || '')
       return value ? { type: 'inlineCode', value } : null
     }
     case 'a': {
@@ -635,8 +628,8 @@ function processInlineElement(
     case 'img': {
       const imgEl = el as HTMLImageElement
       const src = getImageSource(imgEl)
-      const alt = imgEl.alt || imgEl.getAttribute('alt') || ''
-      const title = imgEl.title || imgEl.getAttribute('title') || ''
+      const alt = imgEl.alt || ''
+      const title = imgEl.title || ''
       const fallbackName = cleanText(title) || cleanText(alt) || 'image'
       const image = imageNodeFromSource(src, alt, fallbackName)
       if (!image) return null
@@ -717,39 +710,6 @@ function mergePhrasingContents(
   return merged
 }
 
-/**
- * Normalize a list item node based on its first paragraph's content.
- */
-function normalizeListItem(
-  firstPara: mdast.Paragraph,
-  type: 'bullet' | 'ordered' | 'todo',
-  checked?: boolean,
-  seq?: number | 'auto',
-): mdast.ListItem {
-  const listItem: mdast.ListItem = {
-    type: 'listItem',
-    children: [],
-    ...(type === 'todo' ? { checked: checked ?? false } : null),
-    ...(type === 'ordered'
-      ? {
-          data: {
-            seq:
-              typeof seq === 'number'
-                ? seq
-                : seq === 'auto'
-                  ? 'auto'
-                  : undefined,
-          },
-        }
-      : null),
-  }
-
-  // Move first paragraph's children into the list item directly
-  listItem.children.push(...firstPara.children)
-
-  return listItem
-}
-
 // ---------------------------------------------------------------------------
 // Main DOM traversal: simplified Etherpad-first approach
 // ---------------------------------------------------------------------------
@@ -801,10 +761,11 @@ function flushPhrasingBuffer(
       node.type === 'inlineCode',
   )
   if (hasContent) {
-    result.push({
+    const paragraph: mdast.Paragraph = {
       type: 'paragraph',
-      children: merged as mdast.paragraph['children'],
-    })
+      children: merged,
+    }
+    result.push(paragraph)
   }
   buffer.length = 0
 }
@@ -922,7 +883,9 @@ function removeRepeatedLegacyParagraphLines(
       return block
     }
 
-    const text = block.children.map(child => child.value).join('')
+    const text = block.children
+      .map(child => ('value' in child ? child.value : ''))
+      .join('')
     const lines = text
       .split('\n')
       .map(line => cleanText(line))
@@ -1065,7 +1028,7 @@ function findAllLineElements(editorBody: HTMLElement): HTMLElement[] {
     })
     if (snapshotLines.length > 0) {
       console.log(
-        `[doc parser] Snapshot mode: using ${snapshotLines.length} collected line elements`,
+        `[doc parser] Snapshot mode: using ${snapshotLines.length.toString()} collected line elements`,
       )
       return snapshotLines
     }
@@ -1087,7 +1050,7 @@ function findAllLineElements(editorBody: HTMLElement): HTMLElement[] {
 
   if (aceLines.length > 0) {
     console.log(
-      `[doc parser] Found ${aceLines.length} .ace-line elements (recursive)`,
+      `[doc parser] Found ${aceLines.length.toString()} .ace-line elements (recursive)`,
     )
     return aceLines
   }
@@ -1106,7 +1069,7 @@ function findAllLineElements(editorBody: HTMLElement): HTMLElement[] {
 
   if (contentLines.length > 0) {
     console.log(
-      `[doc parser] Fallback: Found ${contentLines.length} direct child lines`,
+      `[doc parser] Fallback: Found ${contentLines.length.toString()} direct child lines`,
     )
     return contentLines
   }
@@ -1188,7 +1151,7 @@ function collectBlocksRecursive(
   // Recurse into children
   for (const child of Array.from(el.childNodes)) {
     if (child.nodeType === Node.TEXT_NODE) {
-      const text = cleanText(child.textContent || '')
+      const text = cleanText(child.textContent ?? '')
       if (text) {
         phrasingBuffer.push({ type: 'text', value: text })
       }
@@ -1235,10 +1198,10 @@ function collectBlocks(
   // sidebars, navigation, comments, and other UI chrome that exists in outer containers.
   const editorBody = getEditorBody(container)
   console.log(
-    `[doc parser] Editor body: <${editorBody.tagName.toLowerCase()}> id="${editorBody.id}" class="${editorBody.className?.substring(0, 80)}"`,
+    `[doc parser] Editor body: <${editorBody.tagName.toLowerCase()}> id="${editorBody.id}" class="${editorBody.className.substring(0, 80)}"`,
   )
   console.log(
-    `[doc parser] Editor body childElementCount: ${editorBody.childElementCount}, textLen: ${editorBody.textContent?.trim().length ?? 0}`,
+    `[doc parser] Editor body childElementCount: ${editorBody.childElementCount.toString()}, textLen: ${(editorBody.textContent || '').trim().length.toString()}`,
   )
 
   // Check if editor body contains standard HTML blocks (for very old Doc 1.0)
@@ -1253,11 +1216,11 @@ function collectBlocks(
       '[doc parser] Etherpad mode: processing line by line from editorBody direct children',
     )
     const lines = findAllLineElements(editorBody)
-    console.log(`[doc parser] Total lines to process: ${lines.length}`)
+    console.log(
+      `[doc parser] Total lines to process: ${lines.length.toString()}`,
+    )
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-
+    for (const line of lines) {
       // Skip UI chrome and sidebar elements
       if (isSidebarElement(line)) {
         continue
@@ -1316,12 +1279,11 @@ function collectBlocks(
     )
     const allPhrasing = mdastToPhrasing(editorBody, collector)
     if (allPhrasing.length > 0) {
-      result.push({
+      const paragraph: mdast.Paragraph = {
         type: 'paragraph',
-        children: mergePhrasingContents(
-          allPhrasing,
-        ) as mdast.paragraph['children'],
-      })
+        children: mergePhrasingContents(allPhrasing),
+      }
+      result.push(paragraph)
     }
   }
 
@@ -1345,13 +1307,12 @@ function parseBlockElement(
     if (depth > 0 && depth <= 9) {
       const children = mdastToPhrasing(el, collector)
       if (children.length > 0) {
-        return {
+        const heading: mdast.Heading = {
           type: 'heading',
           depth,
-          children: mergePhrasingContents(
-            children,
-          ) as mdast.heading['children'],
+          children: mergePhrasingContents(children),
         }
+        return heading
       }
     }
     return null
@@ -1365,12 +1326,10 @@ function parseBlockElement(
   // --- Code blocks ---
   if (tag === 'pre') {
     const codeEl = el.querySelector('code')
-    const lang =
-      codeEl
-        ?.getAttribute('class')
-        ?.replace('language-', '')
-        .replace('lang-', '') ?? ''
-    const value = cleanText(el.textContent ?? '')
+    const lang = (codeEl?.getAttribute('class') ?? '')
+      .replace('language-', '')
+      .replace('lang-', '')
+    const value = cleanText(el.textContent || '')
     return {
       type: 'code',
       lang,
@@ -1471,8 +1430,8 @@ function parseBlockElement(
   ) {
     const imgEl = el as HTMLImageElement
     const src = getImageSource(imgEl)
-    const alt = el.getAttribute('alt') || ''
-    const title = el.getAttribute('title') || ''
+    const alt = el.getAttribute('alt') ?? ''
+    const title = el.getAttribute('title') ?? ''
     const fallbackName = title || alt || 'image'
     const image = imageNodeFromSource(src, alt, fallbackName)
     if (!image) return null
@@ -1512,7 +1471,7 @@ function parseBlockElement(
 
   // --- Iframe / embedded content ---
   if (tag === 'iframe') {
-    const src = el.getAttribute('src') || ''
+    const src = el.getAttribute('src') ?? ''
     // Skip empty/blank iframes
     if (!src || src.includes('about:blank') || src === '//about:blank') {
       return null
@@ -1528,9 +1487,9 @@ function parseBlockElement(
     const img = el.querySelector('img')
     if (img) {
       const src = getImageSource(img)
-      const alt = img.getAttribute('alt') || ''
+      const alt = img.getAttribute('alt') ?? ''
       const caption = el.querySelector('figcaption')
-      const captionText = caption?.textContent?.trim() || ''
+      const captionText = (caption?.textContent ?? '').trim()
       const fallbackName = captionText || alt || 'image'
       const image = imageNodeFromSource(src, captionText || alt, fallbackName)
       if (!image) return null
@@ -1548,7 +1507,7 @@ function parseBlockElement(
 
   // --- Special etherpad/Feishu block classes ---
   // Check for heading classes (etherpad uses class-based headings, not <h1>-<h6>)
-  const className = el.className?.toString() || ''
+  const className = el.className || ''
   if (
     /heading[1-9]|h[1-9]|title-level/i.test(className) ||
     el.getAttribute('data-heading-level')
@@ -1556,17 +1515,18 @@ function parseBlockElement(
     const levelMatch = /h([1-9])|heading([1-9])/i.exec(className)
     const dataLevel = el.getAttribute('data-heading-level')
     const level = parseInt(
-      levelMatch?.[1] || levelMatch?.[2] || dataLevel || '1',
+      levelMatch?.[1] ?? levelMatch?.[2] ?? dataLevel ?? '1',
       10,
     )
     const depth = Math.min(Math.max(level, 1), 6) as 1 | 2 | 3 | 4 | 5 | 6
     const children = mdastToPhrasing(el, collector)
     if (children.length > 0) {
-      return {
+      const heading: mdast.Heading = {
         type: 'heading',
         depth,
-        children: mergePhrasingContents(children) as mdast.heading['children'],
+        children: mergePhrasingContents(children),
       }
+      return heading
     }
   }
 
@@ -1585,34 +1545,28 @@ function parseBlockElement(
       // No explicit li elements; this div itself might be a list item
       const phrasingChildren = mdastToPhrasing(el, collector)
       if (phrasingChildren.length > 0) {
+        const paragraph: mdast.Paragraph = {
+          type: 'paragraph',
+          children: mergePhrasingContents(phrasingChildren),
+        }
         items.push({
           type: 'listItem',
           spread: false,
-          children: [
-            {
-              type: 'paragraph',
-              children: mergePhrasingContents(
-                phrasingChildren,
-              ) as mdast.paragraph['children'],
-            },
-          ],
+          children: [paragraph],
         })
       }
     } else {
       childElements.forEach(li => {
         const phrasingChildren = mdastToPhrasing(li as HTMLElement, collector)
         if (phrasingChildren.length > 0) {
+          const paragraph: mdast.Paragraph = {
+            type: 'paragraph',
+            children: mergePhrasingContents(phrasingChildren),
+          }
           items.push({
             type: 'listItem',
             spread: false,
-            children: [
-              {
-                type: 'paragraph',
-                children: mergePhrasingContents(
-                  phrasingChildren,
-                ) as mdast.paragraph['children'],
-              },
-            ],
+            children: [paragraph],
           })
         }
       })
@@ -1672,12 +1626,11 @@ function parseBlockElement(
   if (tag === 'p') {
     const children = mdastToPhrasing(el, collector)
     if (children.length > 0) {
-      return {
+      const paragraph: mdast.Paragraph = {
         type: 'paragraph',
-        children: mergePhrasingContents(
-          children,
-        ) as mdast.paragraph['children'],
+        children: mergePhrasingContents(children),
       }
+      return paragraph
     }
   }
 
@@ -1714,7 +1667,7 @@ function parseListItem(
 
   // Check for todo checkbox
   let checked: boolean | undefined
-  if (listType === 'bullet' || !listType) {
+  if (listType === 'bullet') {
     const isChecked =
       el.getAttribute('data-done') === 'true' ||
       el.classList.contains('checked') ||
@@ -1753,7 +1706,7 @@ function parseListItem(
   }
 }
 
-const LEGACY_TABLE_SEPARATOR_RE = /[\u200B\u200C\u200D\uFEFF]+/g
+const LEGACY_TABLE_SEPARATOR_RE = /[\x{200B}\x{200C}\x{200D}\x{FEFF}]+/gu
 
 function inferLegacyTableColumnCount(cells: string[]): number | null {
   if (cells.length < 2) return null
@@ -1777,7 +1730,7 @@ function inferLegacyTableColumnCount(cells: string[]): number | null {
 }
 
 function parseLegacyCompactTable(el: HTMLElement): mdast.Table | null {
-  const rawText = el.textContent ?? ''
+  const rawText = el.textContent || ''
   if (!LEGACY_TABLE_SEPARATOR_RE.test(rawText)) return null
   LEGACY_TABLE_SEPARATOR_RE.lastIndex = 0
 
@@ -1814,15 +1767,15 @@ function parseTable(
   const rows: mdast.TableRow[] = []
   const children = tableEl.children
 
-  for (let i = 0; i < children.length; i++) {
-    const rowEl = children[i] as HTMLElement
+  for (const child of children) {
+    const rowEl = child as HTMLElement
     const rowTag = rowEl.tagName.toLowerCase()
 
     if (rowTag !== 'tr') continue
 
     const cells: HTMLElement[] = []
-    for (let j = 0; j < rowEl.children.length; j++) {
-      cells.push(rowEl.children[j] as HTMLElement)
+    for (const cellChild of rowEl.children) {
+      cells.push(cellChild as HTMLElement)
     }
 
     // Handle colspan
@@ -1926,21 +1879,25 @@ export class Doc {
       'id=',
       this._container.id,
       'class=',
-      this._container.className?.substring(0, 100),
+      this._container.className.substring(0, 100),
     )
     console.log(
       '[doc parser] Container childElementCount:',
       this._container.childElementCount,
       'textContent length:',
-      this._container.textContent?.trim().length ?? 0,
+      this._container.textContent.trim().length,
     )
 
     // Dump first few children for debugging
     const firstKids = Array.from(this._container.children).slice(0, 3)
     firstKids.forEach((k, i) => {
       const kid = k as HTMLElement
+      const className = kid.className ? kid.className.substring(0, 60) : ''
+      const textContent = kid.textContent
+        ? kid.textContent.trim().substring(0, 80)
+        : ''
       console.log(
-        `[doc parser]   child[${i}]: <${kid.tagName.toLowerCase()}> id="${kid.id}" class="${kid.className?.toString().substring(0, 60)}" text="${kid.textContent?.trim().substring(0, 80)}"`,
+        `[doc parser]   child[${i.toString()}]: <${kid.tagName.toLowerCase()}> id="${kid.id}" class="${className}" text="${textContent}"`,
       )
     })
 
@@ -1961,36 +1918,53 @@ export class Doc {
     // Show preview of first few blocks
     if (blocks.length > 0) {
       const previewCount = Math.min(blocks.length, 5)
-      console.log(`[doc parser] First ${previewCount} blocks preview:`)
+      console.log(
+        `[doc parser] First ${previewCount.toString()} blocks preview:`,
+      )
       for (let i = 0; i < previewCount; i++) {
         const block = blocks[i]
         let preview = ''
         if (block.type === 'paragraph') {
+          /* eslint-disable @typescript-eslint/no-unnecessary-condition */
           preview = block.children
             .map(c => {
               if (c.type === 'text') return c.value
-              if (c.type === 'image') return `[img:${c.alt}]`
-              if (c.type === 'link')
-                return `[link:${(c.children?.[0] as any)?.value || c.url}]`
-              if (c.type === 'strong')
-                return `**${(c.children?.[0] as any)?.value || ''}**`
-              if (c.type === 'emphasis')
-                return `*${(c.children?.[0] as any)?.value || ''}*`
+              if (c.type === 'image') return `[img:${c.alt ?? ''}]`
+              if (c.type === 'link') {
+                const childVal =
+                  (c.children?.[0] as { value?: string })?.value ?? ''
+                return `[link:${childVal || c.url || ''}]`
+              }
+              if (c.type === 'strong') {
+                const childVal =
+                  (c.children?.[0] as { value?: string })?.value ?? ''
+                return `**${childVal}**`
+              }
+              if (c.type === 'emphasis') {
+                const childVal =
+                  (c.children?.[0] as { value?: string })?.value ?? ''
+                return `*${childVal}*`
+              }
               return `[${c.type}]`
             })
             .join('')
             .substring(0, 100)
+          /* eslint-enable @typescript-eslint/no-unnecessary-condition */
         } else if (block.type === 'heading') {
-          const text = block.children.map((c: any) => c.value || '').join('')
+          const text = block.children
+            .map(c => ('value' in c ? c.value : ''))
+            .join('')
           preview = `${'#'.repeat(block.depth)} ${text.substring(0, 80)}`
         } else if (block.type === 'list') {
-          preview = `[${block.ordered ? 'ordered' : 'bullet'} list with ${block.children.length} items]`
+          preview = `[${block.ordered ? 'ordered' : 'bullet'} list with ${block.children.length.toString()} items]`
         } else if (block.type === 'code') {
-          preview = `\`\`\`${block.lang || ''}\n${block.value.substring(0, 60)}...\n\`\`\``
+          preview = `\`\`\`${block.lang ?? ''}\n${block.value.substring(0, 60)}...\n\`\`\``
         } else {
           preview = `[${block.type}]`
         }
-        console.log(`[doc parser]   block[${i}] (${block.type}): ${preview}`)
+        console.log(
+          `[doc parser]   block[${i.toString()}] (${block.type}): ${preview}`,
+        )
       }
     } else {
       console.warn(

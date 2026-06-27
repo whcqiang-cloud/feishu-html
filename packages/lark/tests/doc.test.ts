@@ -51,7 +51,7 @@ describe('Doc legacy parser', () => {
     const rootChildren = legacyDoc.intoMarkdownAST().root.children
     const firstNode = rootChildren[0]
 
-    expect(firstNode?.type).toBe('table')
+    expect(firstNode.type).toBe('table')
     expect(JSON.stringify(firstNode)).toContain('2022.03.20')
     expect(rootChildren).toHaveLength(1)
   })
@@ -171,10 +171,10 @@ describe('Doc legacy parser', () => {
     const sources = await images[0]?.data?.fetchSources?.()
 
     expect(images).toHaveLength(1)
-    expect(firstChild?.type).toBe('paragraph')
-    expect(
-      firstChild?.type === 'paragraph' && firstChild.children[0]?.type,
-    ).toBe('image')
+    expect(firstChild.type).toBe('paragraph')
+    expect(firstChild.type === 'paragraph' && firstChild.children[0].type).toBe(
+      'image',
+    )
     expect(sources?.src).toContain('data:image/svg+xml')
   })
 

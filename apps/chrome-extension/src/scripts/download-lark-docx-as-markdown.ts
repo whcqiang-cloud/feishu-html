@@ -10,7 +10,7 @@ if (import.meta.env.DEV) {
   window.addEventListener('error', e => {
     console.error(
       '[CDC] Global error:',
-      e.error || e.message,
+      e.error ?? e.message,
       e.filename,
       e.lineno,
     )
@@ -23,7 +23,7 @@ if (import.meta.env.DEV) {
 // Persistent debug panel at bottom of screen
 function createDebugPanel(): (msg: string) => void {
   if (!import.meta.env.DEV || !location.search.includes('cdc_debug=1')) {
-    return () => {}
+    return () => void 0
   }
 
   try {
@@ -56,7 +56,7 @@ function createDebugPanel(): (msg: string) => void {
       panel.scrollTop = panel.scrollHeight
     }
   } catch {
-    return () => {}
+    return () => void 0
   }
 }
 const debugLog = createDebugPanel()
@@ -646,7 +646,7 @@ const findLegacyScrollContainer = (
     el = el.parentElement
   }
 
-  return (document.scrollingElement as HTMLElement) || document.documentElement
+  return document.scrollingElement ?? document.documentElement
 }
 
 const legacyLineKey = (
@@ -655,20 +655,21 @@ const legacyLineKey = (
   scrollTop: number,
 ): string => {
   const imageKeys = getLegacyLineImageSignature(line)
-  const text = normalizeLegacyLineText(line.textContent ?? '')
+  const text = normalizeLegacyLineText(line.textContent || '')
 
   const classLineId = Array.from(line.classList).find(className =>
     className.startsWith('lineguid-'),
   )
   if (classLineId) return `${classLineId}:${text}:${imageKeys}`
 
-  const explicitId =
-    line.id ||
-    line.dataset['lineId'] ||
-    line.dataset['lineGuid'] ||
-    line.dataset['guid'] ||
-    line.getAttribute('data-line-id') ||
-    line.getAttribute('data-lineguid')
+  const explicitId = [
+    line.id,
+    line.dataset['lineId'],
+    line.dataset['lineGuid'],
+    line.dataset['guid'],
+    line.getAttribute('data-line-id'),
+    line.getAttribute('data-lineguid'),
+  ].find(id => !!id)
   if (explicitId) return `${explicitId}:${text}:${imageKeys}`
 
   if (!imageKeys && text.length >= 16) {
@@ -677,12 +678,12 @@ const legacyLineKey = (
 
   const top = Math.round(line.getBoundingClientRect().top + scrollTop)
 
-  return `fallback:${top}:${index}:${text}:${imageKeys}`
+  return `fallback:${top.toString()}:${index.toString()}:${text}:${imageKeys}`
 }
 
 const normalizeLegacyLineText = (text: string): string =>
   text
-    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
 
@@ -692,8 +693,8 @@ const getLegacyLineImageSignature = (line: HTMLElement): string =>
     .join('|')
 
 const hasLegacyLineContent = (line: HTMLElement): boolean => {
-  const text = line.textContent
-    ?.replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+  const text = (line.textContent || '')
+    .replace(/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/gu, '')
     .trim()
   if (text) return true
 
@@ -712,11 +713,11 @@ const hasOwnLegacyVisualContent = (line: HTMLElement): boolean => {
 }
 
 const isLegacyCompactTableLine = (line: HTMLElement): boolean => {
-  const rawText = line.textContent ?? ''
-  if (!/[\u200B\u200C\u200D\uFEFF]/.test(rawText)) return false
+  const rawText = line.textContent || ''
+  if (!/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/gu.test(rawText)) return false
 
   const cells = rawText
-    .split(/[\u200B\u200C\u200D\uFEFF]+/)
+    .split(/[\x{200B}\x{200C}\x{200D}\x{FEFF}]+/u)
     .map(normalizeLegacyLineText)
     .filter(Boolean)
 
@@ -847,11 +848,9 @@ const getLegacyImageSource = (img: HTMLImageElement): string => {
     .filter((src): src is string => !!src)
     .map(normalizeLegacyImageSource)
 
-  return (
-    candidates.find(src => !isPlaceholderLegacyImageSource(src)) ??
-    candidates[0] ??
-    ''
-  )
+  const validSrc = candidates.find(src => !isPlaceholderLegacyImageSource(src))
+  if (validSrc) return validSrc
+  return candidates[0] || ''
 }
 
 const hasPendingLegacyImage = (editorBody: HTMLElement | null): boolean => {
@@ -886,22 +885,19 @@ const hydrateLegacySnapshotClone = (
 ): void => {
   const sourceImages = Array.from(source.querySelectorAll('img'))
   const cloneImages = Array.from(clone.querySelectorAll('img'))
-  sourceImages.forEach((sourceImage, index) => {
-    const cloneImage = cloneImages[index]
-    if (!cloneImage) return
-
-    const src = getLegacyImageSource(sourceImage)
-    if (!src) return
-
-    cloneImage.setAttribute('src', src)
-    cloneImage.removeAttribute('srcset')
-  })
+  const minImages = Math.min(sourceImages.length, cloneImages.length)
+  for (let i = 0; i < minImages; i++) {
+    const src = getLegacyImageSource(sourceImages[i])
+    cloneImages[i].setAttribute('src', src)
+    cloneImages[i].removeAttribute('srcset')
+  }
 
   const sourceCanvases = Array.from(source.querySelectorAll('canvas'))
   const cloneCanvases = Array.from(clone.querySelectorAll('canvas'))
-  sourceCanvases.forEach((sourceCanvas, index) => {
-    const cloneCanvas = cloneCanvases[index]
-    if (!cloneCanvas) return
+  const minCanvases = Math.min(sourceCanvases.length, cloneCanvases.length)
+  for (let i = 0; i < minCanvases; i++) {
+    const sourceCanvas = sourceCanvases[i]
+    const cloneCanvas = cloneCanvases[i]
 
     try {
       if (sourceCanvas.width <= 1 || sourceCanvas.height <= 1) return
@@ -918,7 +914,7 @@ const hydrateLegacySnapshotClone = (
     } catch {
       // Canvas can be tainted by cross-origin content; leave the cloned node in place.
     }
-  })
+  }
 }
 
 const collectLegacyRenderedLines = (
@@ -990,7 +986,7 @@ const createLegacySnapshotContainer = (
 
   const sourceWidth = sourceEditorBody?.getBoundingClientRect().width
   if (sourceWidth && sourceWidth > 0) {
-    snapshot.style.width = `${Math.round(sourceWidth)}px`
+    snapshot.style.width = `${Math.round(sourceWidth).toString()}px`
   }
 
   for (const line of lines) {
@@ -1019,7 +1015,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
   debugLog(`Step 1: Scroll to load all content...`)
   const editorBody = findLegacyEditorBody()
   debugLog(
-    `editorBody found: ${!!editorBody}, tag=${editorBody?.tagName}, class=${editorBody?.className?.substring(0, 60)}`,
+    `editorBody found: ${editorBody ? 'true' : 'false'}, tag=${editorBody ? editorBody.tagName : 'null'}, class=${editorBody ? editorBody.className.substring(0, 60) : 'null'}`,
   )
 
   // Choose the correct scroll target (window OR editor container, whichever actually scrolls)
@@ -1042,7 +1038,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
   })
 
   debugLog(
-    `Scrolling target: scrollHeight=${scrollTarget.scrollHeight}, clientHeight=${scrollTarget.clientHeight}, viewportStep=${Math.round(viewportHeight)}`,
+    `Scrolling target: scrollHeight=${scrollTarget.scrollHeight.toString()}, clientHeight=${scrollTarget.clientHeight.toString()}, viewportStep=${Math.round(viewportHeight).toString()}`,
   )
 
   scrollTarget.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
@@ -1050,7 +1046,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
   await waitForLegacyImages(editorBody)
   collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
   debugLog(
-    `  initial collect: top=${Math.round(scrollTarget.scrollTop)}, ace-lines=${document.querySelectorAll('.ace-line').length}, collected=${lineSnapshots.size}`,
+    `  initial collect: top=${Math.round(scrollTarget.scrollTop).toString()}, ace-lines=${document.querySelectorAll('.ace-line').length.toString()}, collected=${lineSnapshots.size.toString()}`,
   )
 
   // Gradually scroll down in viewport-sized increments, DO NOT JUMP TO BOTTOM — virtual scroll only renders content you scroll past!
@@ -1078,7 +1074,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
       '.adit-virtual-scroll-placeholder',
     ).length
     debugLog(
-      `  scroll ${i + 1}/${maxScrolls}: top=${Math.round(currentScrollTop)}, totalHeight=${currentScrollHeight}, atBottom=${atBottom}, placeholders=${placeholders}, ace-lines=${currentLines}, collected=${lineSnapshots.size}`,
+      `  scroll ${(i + 1).toString()}/${maxScrolls.toString()}: top=${Math.round(currentScrollTop).toString()}, totalHeight=${currentScrollHeight.toString()}, atBottom=${atBottom ? 'true' : 'false'}, placeholders=${placeholders.toString()}, ace-lines=${currentLines.toString()}, collected=${lineSnapshots.size.toString()}`,
     )
 
     if (atBottom) {
@@ -1146,7 +1142,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
   await waitFor(0.5 * Second)
   Toast.remove(TranslationKey.SCROLL_DOCUMENT)
   debugLog(
-    `Scroll complete. Current ace-lines: ${document.querySelectorAll('.ace-line').length}, collected lines: ${lineSnapshots.size}, total images: ${document.querySelectorAll('img').length}`,
+    `Scroll complete. Current ace-lines: ${document.querySelectorAll('.ace-line').length.toString()}, collected lines: ${lineSnapshots.size.toString()}, total images: ${document.querySelectorAll('img').length.toString()}`,
   )
 
   if (lineSnapshots.size > 0) {
@@ -1155,7 +1151,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
       editorBody,
     )
     debugLog(
-      `Snapshot container created: childElementCount=${snapshotContainer.childElementCount}, textContent length=${snapshotContainer.textContent?.trim().length ?? 0}`,
+      `Snapshot container created: childElementCount=${snapshotContainer.childElementCount.toString()}, textContent length=${(snapshotContainer.textContent || '').trim().length.toString()}`,
     )
   }
 
@@ -1166,23 +1162,30 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
     container: snapshotContainer ?? undefined,
   })
 
-  debugLog(`doc.isReady: ${doc.isReady}`)
-  debugLog(`doc.blocksCount: ${doc.blocksCount}`)
-  debugLog(`doc.imagesCount: ${doc.imagesCount}`)
-  debugLog(`doc.pageTitle: ${doc.pageTitle}`)
+  debugLog(`doc.isReady: ${doc.isReady ? 'true' : 'false'}`)
+  debugLog(`doc.blocksCount: ${doc.blocksCount.toString()}`)
+  debugLog(`doc.imagesCount: ${doc.imagesCount.toString()}`)
+  debugLog(`doc.pageTitle: ${doc.pageTitle || ''}`)
   const c = doc.container
   if (c) {
     debugLog(
-      `container: <${c.tagName.toLowerCase()}> class="${c.className?.substring(0, 80)}"`,
+      `container: <${c.tagName.toLowerCase()}> class="${c.className.substring(0, 80)}"`,
     )
-    debugLog(`  childElementCount: ${c.childElementCount}`)
-    debugLog(`  textContent length: ${c.textContent?.trim().length ?? 0}`)
+    debugLog(`  childElementCount: ${c.childElementCount.toString()}`)
+    debugLog(
+      `  textContent length: ${(c.textContent || '').trim().length.toString()}`,
+    )
     // Show first few children structure
     const kids = Array.from(c.children).slice(0, 5)
-    debugLog(`  first ${kids.length} children:`)
+    debugLog(`  first ${kids.length.toString()} children:`)
     kids.forEach((k, i) => {
+      const kid = k as HTMLElement
+      const className = kid.className ? kid.className.substring(0, 60) : ''
+      const textContent = kid.textContent
+        ? kid.textContent.trim().substring(0, 50)
+        : ''
       debugLog(
-        `    [${i}] <${k.tagName.toLowerCase()}> class="${(k as HTMLElement).className?.substring(0, 60)}" text="${k.textContent?.trim().substring(0, 50)}"`,
+        `    [${i.toString()}] <${kid.tagName.toLowerCase()}> class="${className}" text="${textContent}"`,
       )
     })
   } else {
@@ -1209,13 +1212,13 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
     }
   })()
 
-  debugLog(`root.children.length: ${root.children.length}`)
-  debugLog(`images.length: ${images.length}`)
+  debugLog(`root.children.length: ${root.children.length.toString()}`)
+  debugLog(`images.length: ${images.length.toString()}`)
   if (root.children.length > 0) {
     const firstBlocks = root.children.slice(0, 5)
-    debugLog(`first ${firstBlocks.length} root children types:`)
+    debugLog(`first ${firstBlocks.length.toString()} root children types:`)
     firstBlocks.forEach((b, i) => {
-      debugLog(`  [${i}] type=${b.type}`)
+      debugLog(`  [${i.toString()}] type=${b.type}`)
     })
   }
 
@@ -1225,7 +1228,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
     debugLog(`--- Markdown Preview (first 500 chars) ---`)
     debugLog(mdPreview.replace(/\n/g, '⏎\n'))
   } catch (e) {
-    debugLog(`❌ Failed to stringify markdown: ${e}`)
+    debugLog(`❌ Failed to stringify markdown: ${String(e)}`)
   }
 
   const recommendName = doc.pageTitle
@@ -1325,15 +1328,25 @@ const main = async (options: { signal?: AbortSignal } = {}) => {
     PageMain?: unknown
   }
 
-  debugLog(`isLegacyDocPath (URL check): ${isLegacyDocPath}`)
-  debugLog(`hasInnerdocbody (#innerdocbody exists): ${hasInnerdocbody}`)
-  debugLog(`docx.isDocx: ${docx.isDocx}`)
-  debugLog(`docx.isDoc: ${docx.isDoc}`)
-  debugLog(`window.editor: ${typeof globalWindow.editor !== 'undefined'}`)
-  debugLog(`window.PageMain: ${typeof globalWindow.PageMain !== 'undefined'}`)
-  debugLog(`#mainBox: ${!!document.querySelector('#mainBox')}`)
-  debugLog(`.ace_editor: ${!!document.querySelector('.ace_editor')}`)
-  debugLog(`.outerdocbody: ${!!document.querySelector('.outerdocbody')}`)
+  debugLog(`isLegacyDocPath (URL check): ${isLegacyDocPath ? 'true' : 'false'}`)
+  debugLog(
+    `hasInnerdocbody (#innerdocbody exists): ${hasInnerdocbody ? 'true' : 'false'}`,
+  )
+  debugLog(`docx.isDocx: ${docx.isDocx ? 'true' : 'false'}`)
+  debugLog(`docx.isDoc: ${docx.isDoc ? 'true' : 'false'}`)
+  debugLog(
+    `window.editor: ${typeof globalWindow.editor !== 'undefined' ? 'true' : 'false'}`,
+  )
+  debugLog(
+    `window.PageMain: ${typeof globalWindow.PageMain !== 'undefined' ? 'true' : 'false'}`,
+  )
+  debugLog(`#mainBox: ${document.querySelector('#mainBox') ? 'true' : 'false'}`)
+  debugLog(
+    `.ace_editor: ${document.querySelector('.ace_editor') ? 'true' : 'false'}`,
+  )
+  debugLog(
+    `.outerdocbody: ${document.querySelector('.outerdocbody') ? 'true' : 'false'}`,
+  )
 
   if (import.meta.env.DEV) {
     console.log(

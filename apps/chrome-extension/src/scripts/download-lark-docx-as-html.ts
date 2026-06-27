@@ -5,7 +5,7 @@ if (import.meta.env.DEV) {
   window.addEventListener('error', e => {
     console.error(
       '[CDC] Global error:',
-      e.error || e.message,
+      e.error ?? e.message,
       e.filename,
       e.lineno,
     )
@@ -548,12 +548,12 @@ const findLegacyScrollContainer = (
     el = el.parentElement
   }
 
-  return (document.scrollingElement as HTMLElement) || document.documentElement
+  return document.scrollingElement ?? document.documentElement
 }
 
 const normalizeLegacyLineText = (text: string): string =>
   text
-    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
 
@@ -616,11 +616,9 @@ const getLegacyImageSource = (img: HTMLImageElement): string => {
     .filter((src): src is string => !!src)
     .map(normalizeLegacyImageSource)
 
-  return (
-    candidates.find(src => !isPlaceholderLegacyImageSource(src)) ??
-    candidates[0] ??
-    ''
-  )
+  const validSrc = candidates.find(src => !isPlaceholderLegacyImageSource(src))
+  if (validSrc) return validSrc
+  return candidates[0] || ''
 }
 
 const getLegacyLineImageSignature = (line: HTMLElement): string =>
@@ -634,20 +632,21 @@ const legacyLineKey = (
   scrollTop: number,
 ): string => {
   const imageKeys = getLegacyLineImageSignature(line)
-  const text = normalizeLegacyLineText(line.textContent ?? '')
+  const text = normalizeLegacyLineText(line.textContent || '')
 
   const classLineId = Array.from(line.classList).find(className =>
     className.startsWith('lineguid-'),
   )
   if (classLineId) return `${classLineId}:${text}:${imageKeys}`
 
-  const explicitId =
-    line.id ||
-    line.dataset['lineId'] ||
-    line.dataset['lineGuid'] ||
-    line.dataset['guid'] ||
-    line.getAttribute('data-line-id') ||
-    line.getAttribute('data-lineguid')
+  const explicitId = [
+    line.id,
+    line.dataset['lineId'],
+    line.dataset['lineGuid'],
+    line.dataset['guid'],
+    line.getAttribute('data-line-id'),
+    line.getAttribute('data-lineguid'),
+  ].find(id => !!id)
   if (explicitId) return `${explicitId}:${text}:${imageKeys}`
 
   if (!imageKeys && text.length >= 16) {
@@ -656,12 +655,12 @@ const legacyLineKey = (
 
   const top = Math.round(line.getBoundingClientRect().top + scrollTop)
 
-  return `fallback:${top}:${index}:${text}:${imageKeys}`
+  return `fallback:${top.toString()}:${index.toString()}:${text}:${imageKeys}`
 }
 
 const hasLegacyLineContent = (line: HTMLElement): boolean => {
-  const text = line.textContent
-    ?.replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+  const text = (line.textContent || '')
+    .replace(/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/gu, '')
     .trim()
   if (text) return true
 
@@ -680,11 +679,11 @@ const hasOwnLegacyVisualContent = (line: HTMLElement): boolean => {
 }
 
 const isLegacyCompactTableLine = (line: HTMLElement): boolean => {
-  const rawText = line.textContent ?? ''
-  if (!/[\u200B\u200C\u200D\uFEFF]/.test(rawText)) return false
+  const rawText = line.textContent || ''
+  if (!/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/gu.test(rawText)) return false
 
   const cells = rawText
-    .split(/[\u200B\u200C\u200D\uFEFF]+/)
+    .split(/[\x{200B}\x{200C}\x{200D}\x{FEFF}]+/u)
     .map(normalizeLegacyLineText)
     .filter(Boolean)
 
@@ -787,22 +786,19 @@ const hydrateLegacySnapshotClone = (
 ): void => {
   const sourceImages = Array.from(source.querySelectorAll('img'))
   const cloneImages = Array.from(clone.querySelectorAll('img'))
-  sourceImages.forEach((sourceImage, index) => {
-    const cloneImage = cloneImages[index]
-    if (!cloneImage) return
-
-    const src = getLegacyImageSource(sourceImage)
-    if (!src) return
-
-    cloneImage.setAttribute('src', src)
-    cloneImage.removeAttribute('srcset')
-  })
+  const minImages = Math.min(sourceImages.length, cloneImages.length)
+  for (let i = 0; i < minImages; i++) {
+    const src = getLegacyImageSource(sourceImages[i])
+    cloneImages[i].setAttribute('src', src)
+    cloneImages[i].removeAttribute('srcset')
+  }
 
   const sourceCanvases = Array.from(source.querySelectorAll('canvas'))
   const cloneCanvases = Array.from(clone.querySelectorAll('canvas'))
-  sourceCanvases.forEach((sourceCanvas, index) => {
-    const cloneCanvas = cloneCanvases[index]
-    if (!cloneCanvas) return
+  const minCanvases = Math.min(sourceCanvases.length, cloneCanvases.length)
+  for (let i = 0; i < minCanvases; i++) {
+    const sourceCanvas = sourceCanvases[i]
+    const cloneCanvas = cloneCanvases[i]
 
     try {
       if (sourceCanvas.width <= 1 || sourceCanvas.height <= 1) return
@@ -819,7 +815,7 @@ const hydrateLegacySnapshotClone = (
     } catch {
       // Canvas can be tainted by cross-origin content; leave the cloned node in place.
     }
-  })
+  }
 }
 
 const collectLegacyRenderedLines = (
@@ -862,7 +858,7 @@ const createLegacySnapshotContainer = (
 
   const sourceWidth = sourceEditorBody?.getBoundingClientRect().width
   if (sourceWidth && sourceWidth > 0) {
-    snapshot.style.width = `${Math.round(sourceWidth)}px`
+    snapshot.style.width = `${Math.round(sourceWidth).toString()}px`
   }
 
   for (const line of lines) {
@@ -1091,7 +1087,7 @@ const downloadLegacyDocAsHtml = async (
     const bodyHtml = mdastToHtml(root)
 
     const fullHtml = wrapIntoFullHtml({
-      pageTitle: doc.pageTitle ?? 'Document',
+      pageTitle: doc.pageTitle || 'Document',
       bodyHtml,
       attachments: [],
       includeStyles: settings[SettingKey.HtmlIncludeStyles],

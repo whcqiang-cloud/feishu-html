@@ -5,7 +5,7 @@ if (import.meta.env.DEV) {
   window.addEventListener('error', e => {
     console.error(
       '[CDC] Global error:',
-      e.error || e.message,
+      e.error ?? e.message,
       e.filename,
       e.lineno,
     )
@@ -88,7 +88,7 @@ const viewLegacyDocAsMarkdown = async () => {
     return
   }
 
-  const { root, images } = doc.intoMarkdownAST({
+  const { root } = doc.intoMarkdownAST({
     highlight: settings[SettingKey.TextHighlight],
   })
 
