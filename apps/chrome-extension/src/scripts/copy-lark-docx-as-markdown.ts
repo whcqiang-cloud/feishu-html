@@ -1,5 +1,21 @@
 import i18next from 'i18next'
-import { Docx, docx, Toast } from '@dolphin/lark'
+
+if (import.meta.env.DEV) {
+  console.log('[CDC] copy-md script loaded, href:', location.href)
+  window.addEventListener('error', e =>
+    { console.error(
+      '[CDC] Global error:',
+      e.error || e.message,
+      e.filename,
+      e.lineno,
+    ); },
+  )
+  window.addEventListener('unhandledrejection', e =>
+    { console.error('[CDC] Unhandled rejection:', e.reason); },
+  )
+}
+
+import { Docx, docx, doc, Toast } from '@dolphin/lark'
 import { generatePublicUrl, makePublicUrlEffective } from '@dolphin/lark/image'
 import { isDefined } from '@dolphin/common'
 import { CommonTranslationKey, en, Namespace, zh } from '../common/i18n'
@@ -53,10 +69,47 @@ i18next
   })
   .catch(console.error)
 
+const copyLegacyDocAsMarkdown = async () => {
+  const settings = await getSettings([SettingKey.TextHighlight])
+
+  doc.init({
+    highlight: settings[SettingKey.TextHighlight],
+  })
+
+  if (!doc.isReady) {
+    Toast.warning({
+      content: i18next.t(TranslationKey.CONTENT_LOADING),
+    })
+    return
+  }
+
+  const { root, images } = doc.intoMarkdownAST({
+    highlight: settings[SettingKey.TextHighlight],
+  })
+
+  const markdown = Docx.stringify(root)
+
+  if (!window.document.hasFocus()) {
+    const confirmed = await confirm()
+    if (!confirmed) {
+      return
+    }
+  }
+
+  const writeToClipboard = (
+    Object.getPrototypeOf(window.navigator.clipboard) as Clipboard
+  ).write.bind(window.navigator.clipboard)
+
+  await writeToClipboard([
+    new ClipboardItem({
+      'text/plain': new Blob([markdown], { type: 'text/plain' }),
+    }),
+  ])
+}
+
 const main = async () => {
   if (docx.isDoc) {
-    Toast.warning({ content: i18next.t(TranslationKey.NOT_SUPPORT_DOC_1_0) })
-
+    await copyLegacyDocAsMarkdown()
     return
   }
 

@@ -1,5 +1,11 @@
 import { type Message } from './common/message'
 
+const debugLog = (...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(...args)
+}
+
+debugLog('[CDC background] Service worker loaded')
+
 const sharedDocumentUrlPatterns: string[] = [
   'https://*.feishu.cn/*',
   'https://*.feishu.net/*',
@@ -8,6 +14,35 @@ const sharedDocumentUrlPatterns: string[] = [
   'https://*.larkoffice.com/*',
   'https://*.larkenterprise.com/*',
 ]
+
+const sharedDocumentHosts = [
+  'feishu.cn',
+  'feishu.net',
+  'larksuite.com',
+  'feishu-pre.net',
+  'larkoffice.com',
+  'larkenterprise.com',
+]
+
+const isSharedDocumentUrl = (url?: string): boolean => {
+  if (!url) return true
+
+  try {
+    const { protocol, hostname } = new URL(url)
+    return (
+      protocol === 'https:' &&
+      sharedDocumentHosts.some(
+        host => hostname === host || hostname.endsWith(`.${host}`),
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+const isExpectedHostPermissionError = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.message.includes('Cannot access contents of the page')
 
 enum MenuItemId {
   DOWNLOAD_DOCX_AS_MARKDOWN = 'download_docx_as_markdown',
@@ -63,6 +98,7 @@ chrome.runtime.onInstalled.addListener(() => {
 })
 
 const executeScriptByFlag = async (flag: string | number, tabId: number) => {
+  debugLog('[CDC background] executeScriptByFlag, flag:', flag, 'tabId:', tabId)
   switch (flag) {
     case MenuItemId.DOWNLOAD_DOCX_AS_MARKDOWN:
       await chrome.scripting.executeScript({
@@ -117,14 +153,48 @@ const executeScriptByFlag = async (flag: string | number, tabId: number) => {
   }
 }
 
+const executeScriptSafely = async (
+  flag: string | number,
+  tabId: number,
+  tabUrl?: string,
+) => {
+  if (!isSharedDocumentUrl(tabUrl)) {
+    debugLog('[CDC background] Skip unsupported tab url:', tabUrl)
+    return
+  }
+
+  try {
+    await executeScriptByFlag(flag, tabId)
+  } catch (error) {
+    if (isExpectedHostPermissionError(error)) {
+      debugLog('[CDC background] Skip tab without host access:', tabUrl, error)
+      return
+    }
+
+    console.error(error)
+  }
+}
+
 chrome.contextMenus.onClicked.addListener(({ menuItemId }, tab) => {
+  debugLog(
+    '[CDC background] contextMenu clicked, menuItemId:',
+    menuItemId,
+    'tabId:',
+    tab?.id,
+  )
   if (tab?.id !== undefined) {
-    executeScriptByFlag(menuItemId, tab.id).catch(console.error)
+    executeScriptSafely(menuItemId, tab.id, tab.url)
   }
 })
 
 chrome.runtime.onMessage.addListener((_message, sender, sendResponse) => {
   const message = _message as Message
+  debugLog(
+    '[CDC background] received message, flag:',
+    message.flag,
+    'from:',
+    sender.tab?.id,
+  )
 
   const executeScript = async () => {
     const activeTabs = await chrome.tabs.query({
@@ -133,9 +203,16 @@ chrome.runtime.onMessage.addListener((_message, sender, sendResponse) => {
     })
 
     const activeTabId = activeTabs.at(0)?.id
+    const activeTabUrl = activeTabs.at(0)?.url
+    debugLog(
+      '[CDC background] active tab:',
+      activeTabId,
+      'total active tabs:',
+      activeTabs.length,
+    )
 
     if (activeTabs.length === 1 && activeTabId !== undefined) {
-      await executeScriptByFlag(message.flag, activeTabId)
+      await executeScriptSafely(message.flag, activeTabId, activeTabUrl)
     }
   }
 

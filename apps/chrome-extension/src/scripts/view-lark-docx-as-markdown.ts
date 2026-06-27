@@ -1,5 +1,21 @@
 import i18next from 'i18next'
-import { Docx, docx, Toast } from '@dolphin/lark'
+
+if (import.meta.env.DEV) {
+  console.log('[CDC] view-md script loaded, href:', location.href)
+  window.addEventListener('error', e =>
+    { console.error(
+      '[CDC] Global error:',
+      e.error || e.message,
+      e.filename,
+      e.lineno,
+    ); },
+  )
+  window.addEventListener('unhandledrejection', e =>
+    { console.error('[CDC] Unhandled rejection:', e.reason); },
+  )
+}
+
+import { Docx, docx, doc, Toast } from '@dolphin/lark'
 import { generatePublicUrl, makePublicUrlEffective } from '@dolphin/lark/image'
 import { isDefined } from '@dolphin/common'
 import { CommonTranslationKey, en, Namespace, zh } from '../common/i18n'
@@ -58,10 +74,81 @@ i18next
   })
   .catch(console.error)
 
+const viewLegacyDocAsMarkdown = async () => {
+  const settings = await getSettings([SettingKey.TextHighlight])
+
+  doc.init({
+    highlight: settings[SettingKey.TextHighlight],
+  })
+
+  if (!doc.isReady) {
+    Toast.warning({
+      content: i18next.t(TranslationKey.CONTENT_LOADING),
+    })
+    return
+  }
+
+  const { root, images } = doc.intoMarkdownAST({
+    highlight: settings[SettingKey.TextHighlight],
+  })
+
+  const markdown = Docx.stringify(root)
+
+  if (!window.document.hasFocus()) {
+    const confirmed = await confirm()
+    if (!confirmed) {
+      return
+    }
+  }
+
+  const previewWindow = window.open('', '_blank', 'width=800,height=600')
+
+  if (!previewWindow) {
+    Toast.error({
+      content: i18next.t(TranslationKey.FAILED_TO_OPEN_WINDOW),
+    })
+    return
+  }
+
+  previewWindow.document.title = 'Markdown Preview'
+
+  const writeViewContent = () => {
+    const previewDoc = previewWindow.document
+
+    const style = previewDoc.createElement('style')
+    style.textContent = `
+    body {
+      font-family: monospace, system-ui, sans-serif;
+      padding: 20px;
+      background: #f9f9f9;
+      color: #222;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #fff;
+      padding: 1em;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    `
+    previewDoc.head.appendChild(style)
+
+    const heading = previewDoc.createElement('h2')
+    heading.textContent = 'Markdown Preview'
+    previewDoc.body.appendChild(heading)
+
+    const pre = previewDoc.createElement('pre')
+    pre.textContent = markdown
+    previewDoc.body.appendChild(pre)
+  }
+
+  writeViewContent()
+}
+
 const main = async () => {
   if (docx.isDoc) {
-    Toast.warning({ content: i18next.t(TranslationKey.NOT_SUPPORT_DOC_1_0) })
-
+    await viewLegacyDocAsMarkdown()
     return
   }
 
@@ -133,9 +220,9 @@ const main = async () => {
 
   // prepare markdown preview for document
   const writeViewContent = () => {
-    const doc = previewWindow.document
+    const previewDoc = previewWindow.document
 
-    const style = doc.createElement('style')
+    const style = previewDoc.createElement('style')
     style.textContent = `
     body {
       font-family: monospace, system-ui, sans-serif;
@@ -152,15 +239,15 @@ const main = async () => {
       border-radius: 6px;
     }
     `
-    doc.head.appendChild(style)
+    previewDoc.head.appendChild(style)
 
-    const heading = doc.createElement('h2')
+    const heading = previewDoc.createElement('h2')
     heading.textContent = 'Markdown Preview'
-    doc.body.appendChild(heading)
+    previewDoc.body.appendChild(heading)
 
-    const pre = doc.createElement('pre')
+    const pre = previewDoc.createElement('pre')
     pre.textContent = markdown // Safe, no need to escape
-    doc.body.appendChild(pre)
+    previewDoc.body.appendChild(pre)
   }
 
   writeViewContent()

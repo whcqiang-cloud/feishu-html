@@ -1,5 +1,21 @@
 import i18next from 'i18next'
-import { Toast, docx, type mdast } from '@dolphin/lark'
+
+if (import.meta.env.DEV) {
+  console.log('[CDC] download-html script loaded, href:', location.href)
+  window.addEventListener('error', e =>
+    { console.error(
+      '[CDC] Global error:',
+      e.error || e.message,
+      e.filename,
+      e.lineno,
+    ); },
+  )
+  window.addEventListener('unhandledrejection', e =>
+    { console.error('[CDC] Unhandled rejection:', e.reason); },
+  )
+}
+
+import { Toast, docx, doc, type mdast } from '@dolphin/lark'
 import { OneHundred, Second, waitFor } from '@dolphin/common'
 import { fileSave, supported } from 'browser-fs-access'
 import normalizeFileName from 'filenamify/browser'
@@ -152,7 +168,9 @@ async function responseToBlob(
     onProgress?.(receivedLength / contentLength)
   }
 
-  return new Blob(chunks as BlobPart[])
+  return new Blob(chunks as BlobPart[], {
+    type: response.headers.get('Content-Type') ?? undefined,
+  })
 }
 
 function blobToDataURL(blob: Blob): Promise<string> {
@@ -165,6 +183,8 @@ function blobToDataURL(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob)
   })
 }
+
+const isSvgBlob = (blob: Blob): boolean => blob.type.includes('svg')
 
 /**
  * Compress image using Canvas API, always output as JPEG so quality parameter takes effect.
@@ -246,7 +266,7 @@ const downloadAndInlineImage = async (
           const { src } = sources
           if (isAborted()) return false
 
-          const response = await fetch(src, { signal })
+          const response = await fetch(src, { signal, credentials: 'include' })
           blob = await responseToBlob(response, {
             onProgress: progress => {
               if (isAborted()) return
@@ -270,7 +290,7 @@ const downloadAndInlineImage = async (
         const sizeKb = blob.size / 1024
 
         // Compress image if compression is enabled (all images, not just oversized ones)
-        if (compressEnabled) {
+        if (compressEnabled && !isSvgBlob(blob)) {
           const displayName = originName ?? 'unknown'
           Toast.loading({
             content: i18next.t(TranslationKey.DOWNLOADING_FILE, {
@@ -509,6 +529,443 @@ const prepare = async (): Promise<PrepareResult> => {
   }
 }
 
+const findLegacyEditorBody = (): HTMLElement | null =>
+  document.getElementById('innerdocbody') ??
+  document.querySelector<HTMLElement>('.innerdocbody')
+
+const findLegacyScrollContainer = (
+  editorBody: HTMLElement | null,
+): HTMLElement => {
+  let el: HTMLElement | null = editorBody?.parentElement ?? null
+  while (el) {
+    const style = window.getComputedStyle(el)
+    if (
+      (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+      el.scrollHeight > el.clientHeight
+    ) {
+      return el
+    }
+    el = el.parentElement
+  }
+
+  return (document.scrollingElement as HTMLElement) || document.documentElement
+}
+
+const normalizeLegacyLineText = (text: string): string =>
+  text
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const normalizeLegacyImageSource = (src: string): string => {
+  const trimmed = src.trim()
+  if (
+    !trimmed ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://')
+  ) {
+    return trimmed
+  }
+
+  try {
+    return new URL(trimmed, location.href).href
+  } catch {
+    return trimmed
+  }
+}
+
+const isPlaceholderLegacyImageSource = (src: string): boolean => {
+  const normalized = src.trim()
+  if (
+    !normalized ||
+    normalized === 'about:blank' ||
+    normalized === '//about:blank'
+  ) {
+    return true
+  }
+  if (
+    /transparent|spacer|placeholder|blank|doc-image-loading|loading-rotate|loading-dash/i.test(
+      normalized,
+    )
+  ) {
+    return true
+  }
+
+  return normalized.startsWith('data:image/') && normalized.length < 200
+}
+
+const firstLegacySrcsetCandidate = (srcset: string | null): string =>
+  srcset?.split(',')[0]?.trim().split(/\s+/)[0] ?? ''
+
+const getLegacyImageSource = (img: HTMLImageElement): string => {
+  const candidates = [
+    img.getAttribute('data-src'),
+    img.getAttribute('data-original'),
+    img.getAttribute('data-lazy-src'),
+    img.getAttribute('data-actualsrc'),
+    img.getAttribute('data-origin-src'),
+    img.getAttribute('data-url'),
+    firstLegacySrcsetCandidate(img.getAttribute('data-srcset')),
+    firstLegacySrcsetCandidate(img.getAttribute('srcset')),
+    img.currentSrc,
+    img.getAttribute('src'),
+    img.src,
+  ]
+    .filter((src): src is string => !!src)
+    .map(normalizeLegacyImageSource)
+
+  return (
+    candidates.find(src => !isPlaceholderLegacyImageSource(src)) ??
+    candidates[0] ??
+    ''
+  )
+}
+
+const getLegacyLineImageSignature = (line: HTMLElement): string =>
+  Array.from(line.querySelectorAll<HTMLImageElement>('img'))
+    .map(img => getLegacyImageSource(img) || img.currentSrc || img.src || '')
+    .join('|')
+
+const legacyLineKey = (
+  line: HTMLElement,
+  index: number,
+  scrollTop: number,
+): string => {
+  const imageKeys = getLegacyLineImageSignature(line)
+  const text = normalizeLegacyLineText(line.textContent ?? '')
+
+  const classLineId = Array.from(line.classList).find(className =>
+    className.startsWith('lineguid-'),
+  )
+  if (classLineId) return `${classLineId}:${text}:${imageKeys}`
+
+  const explicitId =
+    line.id ||
+    line.dataset['lineId'] ||
+    line.dataset['lineGuid'] ||
+    line.dataset['guid'] ||
+    line.getAttribute('data-line-id') ||
+    line.getAttribute('data-lineguid')
+  if (explicitId) return `${explicitId}:${text}:${imageKeys}`
+
+  if (!imageKeys && text.length >= 16) {
+    return `fallback-content:${text}`
+  }
+
+  const top = Math.round(line.getBoundingClientRect().top + scrollTop)
+
+  return `fallback:${top}:${index}:${text}:${imageKeys}`
+}
+
+const hasLegacyLineContent = (line: HTMLElement): boolean => {
+  const text = line.textContent
+    ?.replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .trim()
+  if (text) return true
+
+  return line.querySelector('img, canvas, svg, table') !== null
+}
+
+const hasOwnLegacyVisualContent = (line: HTMLElement): boolean => {
+  for (const child of Array.from(line.children)) {
+    const tag = child.tagName.toLowerCase()
+    if (tag === 'img' || tag === 'canvas' || tag === 'svg' || tag === 'table') {
+      return true
+    }
+  }
+
+  return false
+}
+
+const isLegacyCompactTableLine = (line: HTMLElement): boolean => {
+  const rawText = line.textContent ?? ''
+  if (!/[\u200B\u200C\u200D\uFEFF]/.test(rawText)) return false
+
+  const cells = rawText
+    .split(/[\u200B\u200C\u200D\uFEFF]+/)
+    .map(normalizeLegacyLineText)
+    .filter(Boolean)
+
+  return cells.length >= 4
+}
+
+const getLegacyRenderedLineCandidates = (
+  editorBody: HTMLElement,
+): HTMLElement[] => {
+  const candidates = new Set<HTMLElement>()
+
+  editorBody
+    .querySelectorAll<HTMLElement>(
+      [
+        '.ace-line',
+        '[class*="lineguid-"]',
+        '[data-line-id]',
+        '[data-lineguid]',
+        '[data-line]',
+      ].join(', '),
+    )
+    .forEach(line => candidates.add(line))
+
+  // Keep this limited to direct children. Broad descendant list selectors also
+  // match Feishu smart-link/table UI and leak unrelated card/outline text.
+  for (const child of Array.from(editorBody.children) as HTMLElement[]) {
+    if (child.querySelector('.ace-line')) continue
+    if (hasLegacyLineContent(child)) candidates.add(child)
+  }
+
+  const sorted = Array.from(candidates).sort((a, b) => {
+    if (a === b) return 0
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+      ? -1
+      : 1
+  })
+
+  return sorted.filter(candidate => {
+    const containingParentHandlesChildren = sorted.some(
+      other =>
+        other !== candidate &&
+        other.contains(candidate) &&
+        (isLegacyCompactTableLine(other) || hasOwnLegacyVisualContent(other)),
+    )
+    if (containingParentHandlesChildren) return false
+
+    const containedCandidates = sorted.filter(
+      other => other !== candidate && candidate.contains(other),
+    )
+    const hasContainedCandidate = containedCandidates.length > 0
+    const isHardLine =
+      candidate.classList.contains('ace-line') ||
+      Array.from(candidate.classList).some(className =>
+        className.startsWith('lineguid-'),
+      ) ||
+      candidate.hasAttribute('data-line-id') ||
+      candidate.hasAttribute('data-lineguid') ||
+      candidate.hasAttribute('data-line')
+    if (isHardLine && !hasContainedCandidate) return true
+    if (isHardLine && hasContainedCandidate) {
+      return (
+        isLegacyCompactTableLine(candidate) ||
+        hasOwnLegacyVisualContent(candidate)
+      )
+    }
+
+    return !hasContainedCandidate
+  })
+}
+
+const hasPendingLegacyImage = (editorBody: HTMLElement | null): boolean => {
+  if (!editorBody) return false
+
+  const hasPendingImg = Array.from(editorBody.querySelectorAll('img')).some(
+    img => {
+      const src = getLegacyImageSource(img)
+      return !src || isPlaceholderLegacyImageSource(src)
+    },
+  )
+  if (hasPendingImg) return true
+
+  return Array.from(editorBody.querySelectorAll('svg')).some(svg =>
+    /doc-image-loading|loading-rotate|loading-dash/i.test(svg.outerHTML),
+  )
+}
+
+const waitForLegacyImages = async (
+  editorBody: HTMLElement | null,
+  timeoutMs = 800,
+): Promise<void> => {
+  const start = Date.now()
+  while (hasPendingLegacyImage(editorBody) && Date.now() - start < timeoutMs) {
+    await waitFor(0.2 * Second)
+  }
+}
+
+const hydrateLegacySnapshotClone = (
+  source: HTMLElement,
+  clone: HTMLElement,
+): void => {
+  const sourceImages = Array.from(source.querySelectorAll('img'))
+  const cloneImages = Array.from(clone.querySelectorAll('img'))
+  sourceImages.forEach((sourceImage, index) => {
+    const cloneImage = cloneImages[index]
+    if (!cloneImage) return
+
+    const src = getLegacyImageSource(sourceImage)
+    if (!src) return
+
+    cloneImage.setAttribute('src', src)
+    cloneImage.removeAttribute('srcset')
+  })
+
+  const sourceCanvases = Array.from(source.querySelectorAll('canvas'))
+  const cloneCanvases = Array.from(clone.querySelectorAll('canvas'))
+  sourceCanvases.forEach((sourceCanvas, index) => {
+    const cloneCanvas = cloneCanvases[index]
+    if (!cloneCanvas) return
+
+    try {
+      if (sourceCanvas.width <= 1 || sourceCanvas.height <= 1) return
+      const src = sourceCanvas.toDataURL('image/png')
+      if (!src || isPlaceholderLegacyImageSource(src)) return
+
+      const image = document.createElement('img')
+      image.src = src
+      image.alt = sourceCanvas.getAttribute('aria-label') ?? 'drawing'
+      image.width = sourceCanvas.width
+      image.height = sourceCanvas.height
+      image.style.cssText = sourceCanvas.getAttribute('style') ?? ''
+      cloneCanvas.replaceWith(image)
+    } catch {
+      // Canvas can be tainted by cross-origin content; leave the cloned node in place.
+    }
+  })
+}
+
+const collectLegacyRenderedLines = (
+  editorBody: HTMLElement | null,
+  scrollTarget: HTMLElement,
+  snapshots: Map<string, HTMLElement>,
+): number => {
+  if (!editorBody) return 0
+
+  const lines = getLegacyRenderedLineCandidates(editorBody).filter(line => {
+    if (line.hidden || line.getAttribute('aria-hidden') === 'true') return false
+    if (line.closest('.adit-virtual-scroll-placeholder')) return false
+    if (!hasLegacyLineContent(line)) return false
+    return true
+  })
+
+  for (const [index, line] of lines.entries()) {
+    const key = legacyLineKey(line, index, scrollTarget.scrollTop)
+    if (snapshots.has(key)) continue
+
+    const clone = line.cloneNode(true) as HTMLElement
+    clone.removeAttribute('style')
+    clone.dataset['cdcLegacySnapshotLine'] = 'true'
+    hydrateLegacySnapshotClone(line, clone)
+    snapshots.set(key, clone)
+  }
+
+  return lines.length
+}
+
+const createLegacySnapshotContainer = (
+  lines: Iterable<HTMLElement>,
+  sourceEditorBody: HTMLElement | null,
+): HTMLElement => {
+  const snapshot = document.createElement('div')
+  snapshot.className = 'innerdocbody cdc-legacy-snapshot'
+  snapshot.dataset['cdcLegacySnapshot'] = 'true'
+  snapshot.style.cssText =
+    'position:fixed;left:-100000px;top:0;width:900px;opacity:0;pointer-events:none;z-index:-1;'
+
+  const sourceWidth = sourceEditorBody?.getBoundingClientRect().width
+  if (sourceWidth && sourceWidth > 0) {
+    snapshot.style.width = `${Math.round(sourceWidth)}px`
+  }
+
+  for (const line of lines) {
+    snapshot.appendChild(line)
+  }
+
+  document.documentElement.appendChild(snapshot)
+  return snapshot
+}
+
+const prepareLegacySnapshotContainer =
+  async (): Promise<HTMLElement | null> => {
+    const editorBody = findLegacyEditorBody()
+    if (!editorBody) return null
+
+    const scrollTarget = findLegacyScrollContainer(editorBody)
+    const viewportHeight =
+      Math.min(window.innerHeight, scrollTarget.clientHeight) * 0.45
+    const initialScroll = scrollTarget.scrollTop
+    const lineSnapshots = new Map<string, HTMLElement>()
+    let lastTotalLines = 0
+    let stableCount = 0
+    const maxScrolls = 180
+    let reachedBottom = false
+
+    Toast.loading({
+      content: i18next.t(TranslationKey.SCROLL_DOCUMENT),
+      keepAlive: true,
+      key: TranslationKey.SCROLL_DOCUMENT,
+    })
+
+    scrollTarget.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    await waitFor(0.6 * Second)
+    await waitForLegacyImages(editorBody)
+    collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
+
+    for (let i = 0; i < maxScrolls; i++) {
+      scrollTarget.scrollBy({
+        top: viewportHeight,
+        behavior: 'instant' as ScrollBehavior,
+      })
+      await waitFor(0.4 * Second)
+      await waitForLegacyImages(editorBody)
+
+      const currentScrollTop = scrollTarget.scrollTop
+      const currentScrollHeight = scrollTarget.scrollHeight
+      const atBottom =
+        currentScrollTop + scrollTarget.clientHeight >= currentScrollHeight - 20
+
+      collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
+
+      if (atBottom && !reachedBottom) {
+        reachedBottom = true
+        scrollTarget.scrollBy({
+          top: -viewportHeight * 2,
+          behavior: 'instant' as ScrollBehavior,
+        })
+        await waitFor(0.3 * Second)
+        await waitForLegacyImages(editorBody, 800)
+        collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
+        scrollTarget.scrollTo({
+          top: currentScrollHeight,
+          behavior: 'instant' as ScrollBehavior,
+        })
+        await waitFor(1 * Second)
+        await waitForLegacyImages(editorBody)
+        collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
+      }
+
+      if (lineSnapshots.size === lastTotalLines) {
+        stableCount++
+        if (reachedBottom && stableCount >= 5) break
+      } else {
+        stableCount = 0
+        lastTotalLines = lineSnapshots.size
+      }
+    }
+
+    await waitFor(2 * Second)
+    await waitForLegacyImages(editorBody, 2000)
+    collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
+
+    const reverseStart = scrollTarget.scrollTop
+    const reverseStep = Math.max(120, viewportHeight)
+    for (let top = reverseStart; top > 0; top -= reverseStep) {
+      scrollTarget.scrollTo({ top, behavior: 'instant' as ScrollBehavior })
+      await waitFor(0.25 * Second)
+      await waitForLegacyImages(editorBody, 300)
+      collectLegacyRenderedLines(editorBody, scrollTarget, lineSnapshots)
+    }
+
+    scrollTarget.scrollTo({
+      top: initialScroll,
+      behavior: 'instant' as ScrollBehavior,
+    })
+    await waitFor(0.5 * Second)
+    Toast.remove(TranslationKey.SCROLL_DOCUMENT)
+
+    return lineSnapshots.size > 0
+      ? createLegacySnapshotContainer(lineSnapshots.values(), editorBody)
+      : null
+  }
+
 const downloadStandaloneBitableAsHtml = async (): Promise<void> => {
   const settings = await getSettings([
     SettingKey.DownloadMethod,
@@ -557,17 +1014,129 @@ const downloadStandaloneBitableAsHtml = async (): Promise<void> => {
   }
 }
 
-const main = async (options: { signal?: AbortSignal } = {}) => {
+const downloadLegacyDocAsHtml = async (
+  options: { signal?: AbortSignal } = {},
+): Promise<void> => {
   const { signal } = options
 
+  const settings = await getSettings([
+    SettingKey.DownloadMethod,
+    SettingKey.TextHighlight,
+    SettingKey.HtmlImageInline,
+    SettingKey.HtmlMaxInlineSizeKb,
+    SettingKey.HtmlImageCompressEnabled,
+    SettingKey.HtmlImageCompressQuality,
+    SettingKey.HtmlIncludeStyles,
+    SettingKey.HtmlPrintFriendly,
+  ])
+
+  const snapshotContainer = await prepareLegacySnapshotContainer()
+
+  doc.init({
+    highlight: settings[SettingKey.TextHighlight],
+    container: snapshotContainer ?? undefined,
+  })
+
+  if (!doc.isReady) {
+    snapshotContainer?.remove()
+    Toast.warning({
+      content: i18next.t(TranslationKey.CONTENT_LOADING),
+    })
+    throw new Error(DOWNLOAD_ABORTED)
+  }
+
+  const { root, images } = (() => {
+    try {
+      return doc.intoMarkdownAST({
+        highlight: settings[SettingKey.TextHighlight],
+      })
+    } finally {
+      snapshotContainer?.remove()
+    }
+  })()
+
+  const recommendName = doc.pageTitle
+    ? normalizeFileName(doc.pageTitle.slice(0, OneHundred))
+    : 'doc'
+  const filename = `${recommendName}.html`
+
+  const generateHtml = async (): Promise<Blob> => {
+    Toast.loading({
+      content: i18next.t(TranslationKey.STILL_SAVING),
+      keepAlive: true,
+      key: ToastKey.DOWNLOADING,
+    })
+
+    if (settings[SettingKey.HtmlImageInline]) {
+      Toast.loading({
+        content: i18next.t(TranslationKey.DOWNLOAD_PROGRESS, {
+          name: i18next.t(TranslationKey.IMAGE),
+          progress: 0,
+        }),
+        keepAlive: true,
+        key: TranslationKey.IMAGE,
+      })
+
+      await downloadAndInlineImages(images, {
+        batchSize: 3,
+        signal,
+        maxInlineSizeKb: settings[SettingKey.HtmlMaxInlineSizeKb],
+        compressEnabled: settings[SettingKey.HtmlImageCompressEnabled],
+        compressQuality: settings[SettingKey.HtmlImageCompressQuality],
+      })
+
+      Toast.remove(TranslationKey.IMAGE)
+    }
+
+    const bodyHtml = mdastToHtml(root)
+
+    const fullHtml = wrapIntoFullHtml({
+      pageTitle: doc.pageTitle ?? 'Document',
+      bodyHtml,
+      attachments: [],
+      includeStyles: settings[SettingKey.HtmlIncludeStyles],
+      printFriendly: settings[SettingKey.HtmlPrintFriendly],
+    })
+
+    Toast.remove(ToastKey.DOWNLOADING)
+
+    return new Blob([fullHtml], { type: 'text/html' })
+  }
+
+  if (
+    settings[SettingKey.DownloadMethod] === DownloadMethod.ShowSaveFilePicker &&
+    supported
+  ) {
+    if (!navigator.userActivation.isActive) {
+      const confirmed = await confirm()
+      if (!confirmed) {
+        throw new Error(DOWNLOAD_ABORTED)
+      }
+    }
+
+    await fileSave(generateHtml(), {
+      fileName: filename,
+      extensions: ['.html'],
+    })
+  } else {
+    const blob = await generateHtml()
+
+    legacyFileSave(blob, {
+      fileName: filename,
+    })
+  }
+}
+
+const main = async (options: { signal?: AbortSignal } = {}) => {
+  const { signal } = options
   if (!docx.isDocx && isStandaloneBitablePage()) {
     await downloadStandaloneBitableAsHtml()
     return
   }
 
   if (docx.isDoc) {
-    Toast.warning({ content: i18next.t(TranslationKey.NOT_SUPPORT_DOC_1_0) })
-    throw new Error(DOWNLOAD_ABORTED)
+    await downloadLegacyDocAsHtml({ signal })
+    return
   }
 
   if (!docx.isDocx) {

@@ -90,11 +90,11 @@ export class Port<
           const pending: AsyncMessage[] = []
           const resolved: AsyncMessage[] = []
 
-          this.queue.forEach(message => {
-            if (message.id === message.id) {
-              resolved.push(message)
+          this.queue.forEach(asyncMessage => {
+            if (asyncMessage.id === message.id) {
+              resolved.push(asyncMessage)
             } else {
-              pending.push(message)
+              pending.push(asyncMessage)
             }
           })
 
