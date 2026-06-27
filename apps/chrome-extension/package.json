@@ -1,11 +1,11 @@
 {
   "name": "@dolphin/chrome-extension",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "type-check": "vue-tsc -b",
     "build": "node --experimental-strip-types ./scripts/cli.ts build",
-    "build:release": "node --experimental-strip-types ./scripts/cli.ts build && node --experimental-strip-types ./scripts/release.ts",
+    "build:release": "pnpm --filter @dolphin/lark build && node --experimental-strip-types ./scripts/cli.ts build --release && node --experimental-strip-types ./scripts/release.ts",
     "dev:pages": "vite",
     "test": "vitest run"
   },

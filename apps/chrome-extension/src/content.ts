@@ -23,6 +23,47 @@ interface Button {
 const initButtons = (): void => {
   const root = document.body
 
+  // Debug overlay for troubleshooting content script injection
+  if (location.search.includes('cdc_debug=1')) {
+    const overlay = document.createElement('div')
+    overlay.style.cssText =
+      'position:fixed;top:0;left:0;z-index:999999;background:#ff0000;color:#fff;padding:8px;font-size:11px;font-family:monospace;border:2px solid #fff;max-height:80vh;overflow-y:auto;'
+
+    const outerdocbody = document.querySelector('.outerdocbody')
+    const suiteBody = document.querySelector('.suite-body')
+    const etherpadClient = document.querySelector('.etherpad-client-container')
+
+    let outerdocbodyChildren = ''
+    if (outerdocbody) {
+      outerdocbodyChildren = Array.from(outerdocbody.children)
+        .map(c => `${c.tagName}.${String(c.className).split(' ')[0]}`)
+        .slice(0, 10)
+        .join(', ')
+      const text = (outerdocbody.textContent || '')
+        .substring(0, 100)
+        .replace(/\s+/g, ' ')
+      outerdocbodyChildren += ` | text: "${text}"`
+    }
+
+    let suiteBodyChildren = ''
+    if (suiteBody) {
+      suiteBodyChildren = Array.from(suiteBody.children)
+        .map(c => `${c.tagName}.${String(c.className).split(' ')[0]}`)
+        .slice(0, 5)
+        .join(', ')
+    }
+
+    overlay.innerHTML = [
+      `PATH: ${location.pathname}`,
+      `.outerdocbody: ${!!outerdocbody}`,
+      `.suite-body: ${!!suiteBody}`,
+      `.etherpad-client-container: ${!!etherpadClient}`,
+      `.outerdocbody.children: [${outerdocbodyChildren}]`,
+      `.suite-body.children: [${suiteBodyChildren}]`,
+    ].join('<br>')
+    document.body.prepend(overlay)
+  }
+
   const isReady = () => {
     // Comment button may not be displayed
     for (const selector of [HELP_BLOCK_CLASS]) {
