@@ -8,6 +8,7 @@ pnpm-workspace.yaml
 *.md
 
 # apps/chrome-extension
+apps/chrome-extension/release
 bundles
 dist-firefox
 web-ext-artifacts

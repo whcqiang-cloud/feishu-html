@@ -227,7 +227,7 @@ function cleanText(text: string): string {
  */
 function getImageFilename(src: string, fallback = 'image'): string {
   try {
-    const dataType = (/^data:image\/([a-z0-9.+-]+)[;,]/i.exec(src))?.[1]
+    const dataType = /^data:image\/([a-z0-9.+-]+)[;,]/i.exec(src)?.[1]
     if (dataType) {
       const ext = dataType.includes('svg')
         ? 'svg'
@@ -467,10 +467,7 @@ function parseLegacyVisualBlock(
       : Array.from(el.querySelectorAll('svg')).find(svgEl =>
           isMeaningfulSvg(svgEl),
         )
-  const svgDataUrl =
-    svg && isMeaningfulSvg(svg)
-      ? svgToDataUrl(svg)
-      : null
+  const svgDataUrl = svg && isMeaningfulSvg(svg) ? svgToDataUrl(svg) : null
   const isMeaningfulSvgElement =
     tag === 'svg' && isMeaningfulSvg(el as unknown as SVGElement)
   const drawingEl =
@@ -977,7 +974,7 @@ function getEditorBody(container: HTMLElement): HTMLElement {
   }
   innerdocbody =
     container.querySelector<HTMLElement>('#innerdocbody') ??
-    (document.getElementById('innerdocbody'))
+    document.getElementById('innerdocbody')
   if (innerdocbody && innerdocbody.offsetHeight > 100) {
     console.log(
       '[doc parser] Found #innerdocbody (id selector) — using as editor body',

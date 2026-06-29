@@ -36,10 +36,10 @@ const initButtons = (): void => {
     let outerdocbodyChildren = ''
     if (outerdocbody) {
       outerdocbodyChildren = Array.from(outerdocbody.children)
-        .map(c => `${c.tagName}.${String(c.className).split(' ')[0]}`)
+        .map(c => `${c.tagName}.${c.className.split(' ')[0]}`)
         .slice(0, 10)
         .join(', ')
-      const text = (outerdocbody.textContent || '')
+      const text = outerdocbody.textContent
         .substring(0, 100)
         .replace(/\s+/g, ' ')
       outerdocbodyChildren += ` | text: "${text}"`
@@ -48,16 +48,16 @@ const initButtons = (): void => {
     let suiteBodyChildren = ''
     if (suiteBody) {
       suiteBodyChildren = Array.from(suiteBody.children)
-        .map(c => `${c.tagName}.${String(c.className).split(' ')[0]}`)
+        .map(c => `${c.tagName}.${c.className.split(' ')[0]}`)
         .slice(0, 5)
         .join(', ')
     }
 
     overlay.innerHTML = [
       `PATH: ${location.pathname}`,
-      `.outerdocbody: ${!!outerdocbody}`,
-      `.suite-body: ${!!suiteBody}`,
-      `.etherpad-client-container: ${!!etherpadClient}`,
+      `.outerdocbody: ${String(Boolean(outerdocbody))}`,
+      `.suite-body: ${String(Boolean(suiteBody))}`,
+      `.etherpad-client-container: ${String(Boolean(etherpadClient))}`,
       `.outerdocbody.children: [${outerdocbodyChildren}]`,
       `.suite-body.children: [${suiteBodyChildren}]`,
     ].join('<br>')

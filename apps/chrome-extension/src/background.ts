@@ -183,7 +183,7 @@ chrome.contextMenus.onClicked.addListener(({ menuItemId }, tab) => {
     tab?.id,
   )
   if (tab?.id !== undefined) {
-    executeScriptSafely(menuItemId, tab.id, tab.url)
+    void executeScriptSafely(menuItemId, tab.id, tab.url)
   }
 })
 
