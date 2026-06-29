@@ -2,17 +2,17 @@ import i18next from 'i18next'
 
 if (import.meta.env.DEV) {
   console.log('[CDC] view-md script loaded, href:', location.href)
-  window.addEventListener('error', e =>
-    { console.error(
+  window.addEventListener('error', e => {
+    console.error(
       '[CDC] Global error:',
-      e.error || e.message,
+      e.error ?? e.message,
       e.filename,
       e.lineno,
-    ); },
-  )
-  window.addEventListener('unhandledrejection', e =>
-    { console.error('[CDC] Unhandled rejection:', e.reason); },
-  )
+    )
+  })
+  window.addEventListener('unhandledrejection', e => {
+    console.error('[CDC] Unhandled rejection:', e.reason)
+  })
 }
 
 import { Docx, docx, doc, Toast } from '@dolphin/lark'
@@ -88,7 +88,7 @@ const viewLegacyDocAsMarkdown = async () => {
     return
   }
 
-  const { root, images } = doc.intoMarkdownAST({
+  const { root } = doc.intoMarkdownAST({
     highlight: settings[SettingKey.TextHighlight],
   })
 
