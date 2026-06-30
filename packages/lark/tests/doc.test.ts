@@ -56,6 +56,44 @@ describe('Doc legacy parser', () => {
     expect(rootChildren).toHaveLength(1)
   })
 
+  test('parses legacy compact tables when Feishu patches String trim', () => {
+    const snapshot = document.createElement('div')
+    snapshot.className = 'innerdocbody cdc-legacy-snapshot'
+    snapshot.dataset['cdcLegacySnapshot'] = 'true'
+    snapshot.innerHTML =
+      '<div class="ace-line lineguid-table wrapper">时间\u200B变更内容\u200B变更人\u200B2022.03.20\u200B初版编写\u200B高雪林</div>'
+
+    const originalTrim = Object.getOwnPropertyDescriptor(
+      String.prototype,
+      'trim',
+    )?.value as typeof String.prototype.trim
+    const patchedError = new RangeError('Maximum call stack size exceeded')
+
+    let firstNode: ReturnType<
+      Doc['intoMarkdownAST']
+    >['root']['children'][number]
+
+    try {
+      String.prototype.trim = function () {
+        const value = String(this)
+        if (value.includes('初版编写') || value.includes('变更内容')) {
+          throw patchedError
+        }
+        return Reflect.apply(originalTrim, this, [])
+      } as typeof String.prototype.trim
+
+      const legacyDoc = new Doc()
+
+      expect(legacyDoc.init({ container: snapshot })).toBe(true)
+      firstNode = legacyDoc.intoMarkdownAST().root.children[0]
+    } finally {
+      String.prototype.trim = originalTrim
+    }
+
+    expect(firstNode?.type).toBe('table')
+    expect(JSON.stringify(firstNode)).toContain('初版编写')
+  })
+
   test('prefers real lazy image sources over transparent placeholders', async () => {
     const realSrc = 'https://example.com/real.png'
     const placeholder =
@@ -262,5 +300,37 @@ describe('Doc legacy parser', () => {
     const markdown = Docx.stringify(legacyDoc.intoMarkdownAST().root)
 
     expect(markdown.match(/Active 表示该工厂可用/g) ?? []).toHaveLength(2)
+  })
+
+  test('does not recurse forever on quote-like legacy containers', () => {
+    const snapshot = document.createElement('div')
+    snapshot.className = 'innerdocbody cdc-legacy-snapshot'
+    snapshot.dataset['cdcLegacySnapshot'] = 'true'
+    snapshot.innerHTML = [
+      '<div class="legacy-quote-wrapper">',
+      '<div class="ace-line">quoted legacy content</div>',
+      '</div>',
+    ].join('')
+
+    const legacyDoc = new Doc()
+
+    expect(() => legacyDoc.init({ container: snapshot })).not.toThrow()
+    expect(Docx.stringify(legacyDoc.intoMarkdownAST().root)).toContain(
+      'quoted legacy content',
+    )
+  })
+
+  test('does not recurse forever on figures without images', () => {
+    const snapshot = document.createElement('div')
+    snapshot.className = 'innerdocbody cdc-legacy-snapshot'
+    snapshot.dataset['cdcLegacySnapshot'] = 'true'
+    snapshot.innerHTML = '<figure><p>figure text fallback</p></figure>'
+
+    const legacyDoc = new Doc()
+
+    expect(() => legacyDoc.init({ container: snapshot })).not.toThrow()
+    expect(Docx.stringify(legacyDoc.intoMarkdownAST().root)).toContain(
+      'figure text fallback',
+    )
   })
 })

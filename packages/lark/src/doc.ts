@@ -132,7 +132,7 @@ function findEditorContainer(): HTMLElement | null {
     const blocks = el.querySelectorAll(
       'h1,h2,h3,h4,h5,h6,p,img,table,ul,ol,pre,blockquote,li,div[class*="ace-line"]',
     ).length
-    const textLen = el.textContent?.trim().length ?? 0
+    const textLen = cleanText(el.textContent ?? '').length
 
     // Need at least some content
     if (blocks === 0 && textLen < 50) continue
@@ -210,15 +210,42 @@ function getPageTitle(): string {
  */
 const ZERO_WIDTH_CHARS =
   /[\u200B-\u200F\uFEFF\u2028-\u202E\u2060-\u2064\u2066-\u2069\u00A0\u00AD]/g
+const TRIM_CHARS_RE = /^\s+|\s+$/g
+
+function regexReplace(
+  text: string,
+  pattern: RegExp,
+  replacement: string,
+): string {
+  return RegExp.prototype[Symbol.replace].call(pattern, text, replacement)
+}
+
+function safeTrim(text: string): string {
+  return regexReplace(text, TRIM_CHARS_RE, '')
+}
 
 function cleanText(text: string): string {
-  return text
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(ZERO_WIDTH_CHARS, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\t/g, '  ')
-    .replace(/[ \t]+/g, ' ')
-    .trim()
+  // Feishu policy scripts can monkey-patch String.replace/trim in old docs.
+  // Use RegExp @@replace directly so MD and HTML export share a safe cleaner.
+  return safeTrim(
+    regexReplace(
+      regexReplace(
+        regexReplace(
+          regexReplace(
+            regexReplace(text, /<!--[\s\S]*?-->/g, ''),
+            ZERO_WIDTH_CHARS,
+            '',
+          ),
+          /\r\n/g,
+          '\n',
+        ),
+        /\t/g,
+        '  ',
+      ),
+      /[ \t]+/g,
+      ' ',
+    ),
+  )
 }
 
 /**
@@ -231,7 +258,9 @@ function getImageFilename(src: string, fallback = 'image'): string {
     if (dataType) {
       const ext = dataType.includes('svg')
         ? 'svg'
-        : dataType.replace('jpeg', 'jpg')
+        : dataType === 'jpeg'
+          ? 'jpg'
+          : dataType
       return `${fallback}.${ext}`
     }
 
@@ -264,7 +293,7 @@ function getImageFilename(src: string, fallback = 'image'): string {
 }
 
 function normalizeImageSource(src: string): string {
-  const trimmed = src.trim()
+  const trimmed = safeTrim(src)
   if (
     !trimmed ||
     trimmed.startsWith('data:') ||
@@ -283,7 +312,7 @@ function normalizeImageSource(src: string): string {
 }
 
 function isPlaceholderImageSource(src: string): boolean {
-  const normalized = src.trim()
+  const normalized = safeTrim(src)
   if (
     !normalized ||
     normalized === 'about:blank' ||
@@ -303,7 +332,7 @@ function isPlaceholderImageSource(src: string): boolean {
 }
 
 function srcsetFirstCandidate(srcset: string | null): string {
-  return srcset?.split(',')[0]?.trim().split(/\s+/)[0] ?? ''
+  return safeTrim(srcset?.split(',')[0] ?? '').split(/\s+/)[0] ?? ''
 }
 
 function getImageSource(imgEl: HTMLImageElement): string {
@@ -370,7 +399,9 @@ function svgNumber(value: string | null): number {
 }
 
 function svgViewBoxSize(svgEl: SVGElement): { width: number; height: number } {
-  const viewBox = svgEl.getAttribute('viewBox')?.trim().split(/\s+/) ?? []
+  const viewBox = safeTrim(svgEl.getAttribute('viewBox') ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
   if (viewBox.length === 4) {
     return {
       width: svgNumber(viewBox[2]),
@@ -614,7 +645,7 @@ function processInlineElement(
       const href = el.getAttribute('href') ?? ''
       const children = mdastToPhrasing(el, collector)
       if (href.startsWith('mention:')) {
-        const userId = href.replace('mention:', '')
+        const userId = regexReplace(href, /^mention:/, '')
         const value = children
           .filter(n => n.type === 'text')
           .map(n => n.value)
@@ -684,12 +715,19 @@ function processInlineElement(
  * Escape special characters for use inside mdast html node values.
  */
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+  return regexReplace(
+    regexReplace(
+      regexReplace(
+        regexReplace(regexReplace(str, /&/g, '&amp;'), /</g, '&lt;'),
+        />/g,
+        '&gt;',
+      ),
+      /"/g,
+      '&quot;',
+    ),
+    /'/g,
+    '&#039;',
+  )
 }
 
 /**
@@ -753,6 +791,21 @@ function normalizeListItem(
 // ---------------------------------------------------------------------------
 // Main DOM traversal: simplified Etherpad-first approach
 // ---------------------------------------------------------------------------
+
+interface LegacyParseOptions {
+  highlight?: boolean
+  depth?: number
+}
+
+const MAX_LEGACY_PARSE_DEPTH = 120
+
+function nextLegacyParseOptions(
+  options: LegacyParseOptions = {},
+): LegacyParseOptions | null {
+  const depth = (options.depth ?? 0) + 1
+  if (depth > MAX_LEGACY_PARSE_DEPTH) return null
+  return { ...options, depth }
+}
 
 /**
  * Check if an element is "empty" (contains no visible text or meaningful content).
@@ -1125,10 +1178,13 @@ function findAllLineElements(editorBody: HTMLElement): HTMLElement[] {
 function collectBlocksRecursive(
   el: HTMLElement,
   collector: ImageCollector,
-  options: { highlight?: boolean } = {},
+  options: LegacyParseOptions = {},
   result: mdast.BlockContent[] = [],
   phrasingBuffer: mdast.PhrasingContent[] = [],
 ): mdast.BlockContent[] {
+  const scopedOptions = nextLegacyParseOptions(options)
+  if (!scopedOptions) return result
+
   const tag = el.tagName.toLowerCase()
 
   // Skip non-content elements
@@ -1154,7 +1210,7 @@ function collectBlocksRecursive(
   }
 
   // Try to parse as known block
-  const node = parseBlockElement(el, collector, options)
+  const node = parseBlockElement(el, collector, scopedOptions)
   if (node) {
     flushPhrasingBuffer(phrasingBuffer, result)
     result.push(node)
@@ -1196,7 +1252,7 @@ function collectBlocksRecursive(
       collectBlocksRecursive(
         child as HTMLElement,
         collector,
-        options,
+        scopedOptions,
         result,
         phrasingBuffer,
       )
@@ -1226,7 +1282,7 @@ function collectBlocksRecursive(
 function collectBlocks(
   container: HTMLElement,
   collector: ImageCollector,
-  options: { highlight?: boolean } = {},
+  options: LegacyParseOptions = {},
 ): mdast.BlockContent[] {
   const result: mdast.BlockContent[] = []
   const phrasingBuffer: mdast.PhrasingContent[] = []
@@ -1238,7 +1294,7 @@ function collectBlocks(
     `[doc parser] Editor body: <${editorBody.tagName.toLowerCase()}> id="${editorBody.id}" class="${editorBody.className?.substring(0, 80)}"`,
   )
   console.log(
-    `[doc parser] Editor body childElementCount: ${editorBody.childElementCount}, textLen: ${editorBody.textContent?.trim().length ?? 0}`,
+    `[doc parser] Editor body childElementCount: ${editorBody.childElementCount}, textLen: ${cleanText(editorBody.textContent ?? '').length}`,
   )
 
   // Check if editor body contains standard HTML blocks (for very old Doc 1.0)
@@ -1328,6 +1384,26 @@ function collectBlocks(
   return normalizeLegacyBlocks(result)
 }
 
+function collectChildBlocks(
+  el: HTMLElement,
+  collector: ImageCollector,
+  options: LegacyParseOptions,
+): mdast.BlockContent[] {
+  const innerBlocks: mdast.BlockContent[] = []
+
+  for (const child of el.children) {
+    const childEl = child as HTMLElement
+    const node = parseBlockElement(childEl, collector, options)
+    if (node) {
+      innerBlocks.push(node)
+    } else {
+      collectBlocksRecursive(childEl, collector, options, innerBlocks)
+    }
+  }
+
+  return innerBlocks
+}
+
 /**
  * Try to convert a single DOM element to an mdast block node.
  * Returns null if the element is not a recognized block type.
@@ -1335,8 +1411,11 @@ function collectBlocks(
 function parseBlockElement(
   el: HTMLElement,
   collector: ImageCollector,
-  options: { highlight?: boolean } = {},
+  options: LegacyParseOptions = {},
 ): mdast.BlockContent | null {
+  const scopedOptions = nextLegacyParseOptions(options)
+  if (!scopedOptions) return null
+
   const tag = el.tagName.toLowerCase()
 
   // --- Headings ---
@@ -1365,11 +1444,13 @@ function parseBlockElement(
   // --- Code blocks ---
   if (tag === 'pre') {
     const codeEl = el.querySelector('code')
-    const lang =
-      codeEl
-        ?.getAttribute('class')
-        ?.replace('language-', '')
-        .replace('lang-', '') ?? ''
+    const lang = codeEl?.getAttribute('class')
+      ? regexReplace(
+          regexReplace(codeEl.getAttribute('class') ?? '', /^language-/, ''),
+          /^lang-/,
+          '',
+        )
+      : ''
     const value = cleanText(el.textContent ?? '')
     return {
       type: 'code',
@@ -1386,14 +1467,18 @@ function parseBlockElement(
   ) {
     const innerBlocks: mdast.BlockContent[] = []
     for (const child of el.children) {
-      const node = parseBlockElement(child as HTMLElement, collector, options)
+      const node = parseBlockElement(
+        child as HTMLElement,
+        collector,
+        scopedOptions,
+      )
       if (node) {
         innerBlocks.push(node)
       } else {
         collectBlocksRecursive(
           child as HTMLElement,
           collector,
-          options,
+          scopedOptions,
           innerBlocks,
         )
       }
@@ -1410,7 +1495,7 @@ function parseBlockElement(
     for (const child of el.children) {
       const li = child as HTMLElement
       if (li.tagName.toLowerCase() === 'li') {
-        const parsed = parseListItem(li, 'bullet', collector, options)
+        const parsed = parseListItem(li, 'bullet', collector, scopedOptions)
         if (parsed) items.push(parsed)
       }
     }
@@ -1433,7 +1518,13 @@ function parseBlockElement(
     for (const child of el.children) {
       const li = child as HTMLElement
       if (li.tagName.toLowerCase() === 'li') {
-        const parsed = parseListItem(li, 'ordered', collector, options, start)
+        const parsed = parseListItem(
+          li,
+          'ordered',
+          collector,
+          scopedOptions,
+          start,
+        )
         if (parsed) items.push(parsed)
         start++
       }
@@ -1492,14 +1583,18 @@ function parseBlockElement(
   ) {
     const innerBlocks: mdast.BlockContent[] = []
     for (const child of el.children) {
-      const node = parseBlockElement(child as HTMLElement, collector, options)
+      const node = parseBlockElement(
+        child as HTMLElement,
+        collector,
+        scopedOptions,
+      )
       if (node) {
         innerBlocks.push(node)
       } else {
         collectBlocksRecursive(
           child as HTMLElement,
           collector,
-          options,
+          scopedOptions,
           innerBlocks,
         )
       }
@@ -1530,7 +1625,7 @@ function parseBlockElement(
       const src = getImageSource(img)
       const alt = img.getAttribute('alt') || ''
       const caption = el.querySelector('figcaption')
-      const captionText = caption?.textContent?.trim() || ''
+      const captionText = cleanText(caption?.textContent ?? '')
       const fallbackName = captionText || alt || 'image'
       const image = imageNodeFromSource(src, captionText || alt, fallbackName)
       if (!image) return null
@@ -1541,8 +1636,7 @@ function parseBlockElement(
       }
     }
     // Try to parse other figure content
-    const innerBlocks: mdast.BlockContent[] = []
-    collectBlocksRecursive(el, collector, options, innerBlocks)
+    const innerBlocks = collectChildBlocks(el, collector, scopedOptions)
     return innerBlocks[0] ?? null
   }
 
@@ -1643,8 +1737,7 @@ function parseBlockElement(
 
   // --- Blockquote / callout ---
   if (tag === 'blockquote' || /quote|callout|blockquote/i.test(className)) {
-    const innerBlocks: mdast.BlockContent[] = []
-    collectBlocksRecursive(el, collector, options, innerBlocks)
+    const innerBlocks = collectChildBlocks(el, collector, scopedOptions)
     if (innerBlocks.length > 0) {
       return { type: 'blockquote', children: innerBlocks }
     }
@@ -1691,7 +1784,7 @@ function parseListItem(
   el: HTMLElement,
   listType: 'bullet' | 'ordered' | 'todo',
   collector: ImageCollector,
-  options: { highlight?: boolean } = {},
+  options: LegacyParseOptions = {},
   start?: number,
 ): mdast.ListItem | null {
   const children: mdast.Nodes[] = []
@@ -1754,50 +1847,67 @@ function parseListItem(
 }
 
 const LEGACY_TABLE_SEPARATOR_RE = /[\u200B\u200C\u200D\uFEFF]+/g
+const LEGACY_COMPACT_TABLE_MAX_CELLS = 500
+const LEGACY_COMPACT_TABLE_MAX_TEXT_LENGTH = 20000
 
 function inferLegacyTableColumnCount(cells: string[]): number | null {
   if (cells.length < 2) return null
   if (cells.length === 2) return 2
 
-  const divisors = [6, 5, 4, 3, 2].filter(
-    columnCount => cells.length % columnCount === 0,
-  )
+  const divisors: number[] = []
+  for (const columnCount of [6, 5, 4, 3, 2]) {
+    if (cells.length % columnCount === 0) divisors.push(columnCount)
+  }
   if (divisors.length === 0) return null
 
-  if (
-    cells.length % 3 === 0 &&
-    cells.some(cell => /^\d{4}[./-]\d{1,2}[./-]\d{1,2}$/.test(cell))
-  ) {
-    return 3
+  if (cells.length % 3 === 0) {
+    for (const cell of cells) {
+      if (/^\d{4}[./-]\d{1,2}[./-]\d{1,2}$/.test(cell)) return 3
+    }
   }
 
   if (cells.length <= 4 && cells.length % 2 === 0) return 2
 
-  return divisors.find(columnCount => columnCount <= 4) ?? divisors[0]
+  for (const columnCount of divisors) {
+    if (columnCount <= 4) return columnCount
+  }
+  return divisors[0]
 }
 
 function parseLegacyCompactTable(el: HTMLElement): mdast.Table | null {
   const rawText = el.textContent ?? ''
+  if (rawText.length > LEGACY_COMPACT_TABLE_MAX_TEXT_LENGTH) return null
   if (!LEGACY_TABLE_SEPARATOR_RE.test(rawText)) return null
   LEGACY_TABLE_SEPARATOR_RE.lastIndex = 0
 
-  const cells = rawText
-    .split(LEGACY_TABLE_SEPARATOR_RE)
-    .map(cell => cleanText(cell))
-    .filter(Boolean)
+  const rawCells = rawText.split(LEGACY_TABLE_SEPARATOR_RE)
+  if (rawCells.length > LEGACY_COMPACT_TABLE_MAX_CELLS) return null
+
+  const cells: string[] = []
+  for (const rawCell of rawCells) {
+    const cell = cleanText(rawCell)
+    if (cell) cells.push(cell)
+  }
+
   const columnCount = inferLegacyTableColumnCount(cells)
   if (!columnCount || cells.length < columnCount) return null
 
   const rows: mdast.TableRow[] = []
   for (let i = 0; i < cells.length; i += columnCount) {
-    const rowCells = cells.slice(i, i + columnCount)
-    if (rowCells.length !== columnCount) return null
-    rows.push({
-      type: 'tableRow',
-      children: rowCells.map(cell => ({
+    if (i + columnCount > cells.length) return null
+    const children: mdast.TableCell[] = []
+
+    for (let j = 0; j < columnCount; j++) {
+      const cell = cells[i + j]
+      children.push({
         type: 'tableCell',
         children: cell ? [{ type: 'text', value: cell }] : [],
-      })),
+      })
+    }
+
+    rows.push({
+      type: 'tableRow',
+      children,
     })
   }
 
@@ -1932,7 +2042,7 @@ export class Doc {
       '[doc parser] Container childElementCount:',
       this._container.childElementCount,
       'textContent length:',
-      this._container.textContent?.trim().length ?? 0,
+      cleanText(this._container.textContent ?? '').length,
     )
 
     // Dump first few children for debugging
@@ -1940,7 +2050,7 @@ export class Doc {
     firstKids.forEach((k, i) => {
       const kid = k as HTMLElement
       console.log(
-        `[doc parser]   child[${i}]: <${kid.tagName.toLowerCase()}> id="${kid.id}" class="${kid.className?.toString().substring(0, 60)}" text="${kid.textContent?.trim().substring(0, 80)}"`,
+        `[doc parser]   child[${i}]: <${kid.tagName.toLowerCase()}> id="${kid.id}" class="${kid.className?.toString().substring(0, 60)}" text="${cleanText(kid.textContent ?? '').substring(0, 80)}"`,
       )
     })
 

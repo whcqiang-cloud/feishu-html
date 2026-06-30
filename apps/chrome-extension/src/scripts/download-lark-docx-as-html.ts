@@ -551,14 +551,26 @@ const findLegacyScrollContainer = (
   return (document.scrollingElement as HTMLElement) || document.documentElement
 }
 
+const legacyRegexReplace = (
+  text: string,
+  pattern: RegExp,
+  replacement: string,
+): string => RegExp.prototype[Symbol.replace].call(pattern, text, replacement)
+
+const safeLegacyTrim = (text: string): string =>
+  legacyRegexReplace(text, /^\s+|\s+$/g, '')
+
 const normalizeLegacyLineText = (text: string): string =>
-  text
-    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  safeLegacyTrim(
+    legacyRegexReplace(
+      legacyRegexReplace(text, /[\u200B\u200C\u200D\uFEFF]/g, ''),
+      /\s+/g,
+      ' ',
+    ),
+  )
 
 const normalizeLegacyImageSource = (src: string): string => {
-  const trimmed = src.trim()
+  const trimmed = safeLegacyTrim(src)
   if (
     !trimmed ||
     trimmed.startsWith('data:') ||
@@ -577,7 +589,7 @@ const normalizeLegacyImageSource = (src: string): string => {
 }
 
 const isPlaceholderLegacyImageSource = (src: string): boolean => {
-  const normalized = src.trim()
+  const normalized = safeLegacyTrim(src)
   if (
     !normalized ||
     normalized === 'about:blank' ||
@@ -597,7 +609,7 @@ const isPlaceholderLegacyImageSource = (src: string): boolean => {
 }
 
 const firstLegacySrcsetCandidate = (srcset: string | null): string =>
-  srcset?.split(',')[0]?.trim().split(/\s+/)[0] ?? ''
+  safeLegacyTrim(srcset?.split(',')[0] ?? '').split(/\s+/)[0] ?? ''
 
 const getLegacyImageSource = (img: HTMLImageElement): string => {
   const candidates = [
@@ -660,9 +672,7 @@ const legacyLineKey = (
 }
 
 const hasLegacyLineContent = (line: HTMLElement): boolean => {
-  const text = line.textContent
-    ?.replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
-    .trim()
+  const text = normalizeLegacyLineText(line.textContent ?? '')
   if (text) return true
 
   return line.querySelector('img, canvas, svg, table') !== null
