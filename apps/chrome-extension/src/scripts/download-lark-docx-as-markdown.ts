@@ -680,11 +680,26 @@ const legacyLineKey = (
   return `fallback:${top}:${index}:${text}:${imageKeys}`
 }
 
+const legacyRegexReplace = (
+  text: string,
+  pattern: RegExp,
+  replacement: string,
+): string => RegExp.prototype[Symbol.replace].call(pattern, text, replacement)
+
+const safeLegacyTrim = (text: string): string =>
+  legacyRegexReplace(text, /^\s+|\s+$/g, '')
+
+const safeLegacyTrimEnd = (text: string): string =>
+  legacyRegexReplace(text, /\s+$/g, '')
+
 const normalizeLegacyLineText = (text: string): string =>
-  text
-    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  safeLegacyTrim(
+    legacyRegexReplace(
+      legacyRegexReplace(text, /[\u200B\u200C\u200D\uFEFF]/g, ''),
+      /\s+/g,
+      ' ',
+    ),
+  )
 
 const getLegacyLineImageSignature = (line: HTMLElement): string =>
   Array.from(line.querySelectorAll<HTMLImageElement>('img'))
@@ -692,9 +707,7 @@ const getLegacyLineImageSignature = (line: HTMLElement): string =>
     .join('|')
 
 const hasLegacyLineContent = (line: HTMLElement): boolean => {
-  const text = line.textContent
-    ?.replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
-    .trim()
+  const text = normalizeLegacyLineText(line.textContent ?? '')
   if (text) return true
 
   return line.querySelector('img, canvas, svg, table') !== null
@@ -789,7 +802,7 @@ const getLegacyRenderedLineCandidates = (
 }
 
 const normalizeLegacyImageSource = (src: string): string => {
-  const trimmed = src.trim()
+  const trimmed = safeLegacyTrim(src)
   if (
     !trimmed ||
     trimmed.startsWith('data:') ||
@@ -808,7 +821,7 @@ const normalizeLegacyImageSource = (src: string): string => {
 }
 
 const isPlaceholderLegacyImageSource = (src: string): boolean => {
-  const normalized = src.trim()
+  const normalized = safeLegacyTrim(src)
   if (
     !normalized ||
     normalized === 'about:blank' ||
@@ -828,7 +841,7 @@ const isPlaceholderLegacyImageSource = (src: string): boolean => {
 }
 
 const firstLegacySrcsetCandidate = (srcset: string | null): string =>
-  srcset?.split(',')[0]?.trim().split(/\s+/)[0] ?? ''
+  safeLegacyTrim(srcset?.split(',')[0] ?? '').split(/\s+/)[0] ?? ''
 
 const getLegacyImageSource = (img: HTMLImageElement): string => {
   const candidates = [
@@ -963,9 +976,11 @@ const formatLegacyMarkdown = (markdown: string): string => {
       continue
     }
 
-    const normalizedLine = inFence ? line : line.replace(/[ \t]+$/g, '')
+    const normalizedLine = inFence
+      ? line
+      : legacyRegexReplace(line, /[ \t]+$/g, '')
 
-    if (!inFence && normalizedLine.trim() === '') {
+    if (!inFence && safeLegacyTrim(normalizedLine) === '') {
       blankCount++
       if (blankCount <= 1) formatted.push('')
       continue
@@ -975,7 +990,7 @@ const formatLegacyMarkdown = (markdown: string): string => {
     formatted.push(normalizedLine)
   }
 
-  return `${formatted.join('\n').trimEnd()}\n`
+  return `${safeLegacyTrimEnd(formatted.join('\n'))}\n`
 }
 
 const createLegacySnapshotContainer = (
@@ -1155,7 +1170,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
       editorBody,
     )
     debugLog(
-      `Snapshot container created: childElementCount=${snapshotContainer.childElementCount}, textContent length=${snapshotContainer.textContent?.trim().length ?? 0}`,
+      `Snapshot container created: childElementCount=${snapshotContainer.childElementCount}, textContent length=${normalizeLegacyLineText(snapshotContainer.textContent ?? '').length}`,
     )
   }
 
@@ -1176,13 +1191,15 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
       `container: <${c.tagName.toLowerCase()}> class="${c.className?.substring(0, 80)}"`,
     )
     debugLog(`  childElementCount: ${c.childElementCount}`)
-    debugLog(`  textContent length: ${c.textContent?.trim().length ?? 0}`)
+    debugLog(
+      `  textContent length: ${normalizeLegacyLineText(c.textContent ?? '').length}`,
+    )
     // Show first few children structure
     const kids = Array.from(c.children).slice(0, 5)
     debugLog(`  first ${kids.length} children:`)
     kids.forEach((k, i) => {
       debugLog(
-        `    [${i}] <${k.tagName.toLowerCase()}> class="${(k as HTMLElement).className?.substring(0, 60)}" text="${k.textContent?.trim().substring(0, 50)}"`,
+        `    [${i}] <${k.tagName.toLowerCase()}> class="${(k as HTMLElement).className?.substring(0, 60)}" text="${normalizeLegacyLineText(k.textContent ?? '').substring(0, 50)}"`,
       )
     })
   } else {
@@ -1223,7 +1240,7 @@ const downloadLegacyDocAsMarkdown = async (): Promise<void> => {
   try {
     const mdPreview = Docx.stringify(root).substring(0, 500)
     debugLog(`--- Markdown Preview (first 500 chars) ---`)
-    debugLog(mdPreview.replace(/\n/g, '⏎\n'))
+    debugLog(legacyRegexReplace(mdPreview, /\n/g, '⏎\n'))
   } catch (e) {
     debugLog(`❌ Failed to stringify markdown: ${e}`)
   }

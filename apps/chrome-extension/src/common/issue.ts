@@ -33,7 +33,7 @@ function generateIssueUrl(issue: Issue): string {
   const { title, body, labels = [], template } = issue
 
   const url = new URL(
-    'https://github.com/whale4113/cloud-document-converter/issues/new',
+    'https://github.com/whcqiang-cloud/feishu-html/issues/new',
   )
 
   if (title) url.searchParams.set('title', title)
