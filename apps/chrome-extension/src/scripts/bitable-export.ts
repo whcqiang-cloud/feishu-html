@@ -197,13 +197,33 @@ function getRecordFields(record: unknown): Record<string, unknown> {
   )
 }
 
-function tableDataToRows(table: BitableTableData): string[][] {
-  const view = table.viewMap?.[table.currentView ?? '']
-  const allFieldIds =
-    view?.property?.fields ?? Object.keys(table.fieldMap ?? {})
-  const fieldIds = allFieldIds.filter(
-    fieldId => !view?.property?.colInfos?.[fieldId]?.hidden,
+function getRecordFieldIds(
+  recordMap: Record<string, unknown> | undefined,
+): string[] {
+  return Object.values(recordMap ?? {}).flatMap(record =>
+    Object.keys(getRecordFields(record)),
   )
+}
+
+function mergeFieldIds(table: BitableTableData): string[] {
+  const view = table.viewMap?.[table.currentView ?? '']
+  const fieldIds = [
+    ...(view?.property?.fields ?? []),
+    ...Object.keys(table.fieldMap ?? {}),
+    ...getRecordFieldIds(table.recordMap),
+  ]
+  const seen = new Set<string>()
+
+  return fieldIds.filter(fieldId => {
+    if (!fieldId || seen.has(fieldId)) return false
+    seen.add(fieldId)
+
+    return !view?.property?.colInfos?.[fieldId]?.hidden
+  })
+}
+
+function tableDataToRows(table: BitableTableData): string[][] {
+  const fieldIds = mergeFieldIds(table)
   const recordIds =
     table.groupList?.flatMap(group => group.recordIDList ?? []) ??
     Object.keys(table.recordMap ?? {})
@@ -283,15 +303,16 @@ function normalizeColumnCount(rows: string[][]): string[][] {
 export function bitableToHtml(table: BitableTable): string {
   const rows = normalizeColumnCount(table.rows)
   const [header = [], ...bodyRows] = rows
+  const caption = escapeHtml(table.title)
 
-  return `<table><thead><tr>${header
+  return `<figure class="bitable"><figcaption>${caption}</figcaption><div class="bitable-wrapper"><table><thead><tr>${header
     .map(cell => `<th>${escapeHtml(cell)}</th>`)
     .join('')}</tr></thead><tbody>${bodyRows
     .map(
       row =>
         `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`,
     )
-    .join('')}</tbody></table>`
+    .join('')}</tbody></table></div></figure>`
 }
 
 function escapeMarkdownCell(value: string): string {

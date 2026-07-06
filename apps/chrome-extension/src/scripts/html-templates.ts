@@ -9,6 +9,7 @@ export interface HtmlTemplateOptions {
   attachments: AttachmentInfo[]
   includeStyles: boolean
   printFriendly: boolean
+  bodyClass?: string
 }
 
 const CSS_STYLES = /* css */ `
@@ -37,6 +38,14 @@ const CSS_STYLES = /* css */ `
     max-width: 900px;
     margin: 0 auto;
     padding: 32px 24px;
+  }
+
+  body.bitable-export-page {
+    max-width: none;
+  }
+
+  body.bitable-export-page .markdown-body {
+    min-width: 100%;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -195,6 +204,18 @@ const CSS_STYLES = /* css */ `
     min-width: 100%;
   }
 
+  body.bitable-export-page .bitable-wrapper {
+    max-width: none;
+    overflow-x: visible;
+  }
+
+  body.bitable-export-page .bitable-wrapper table {
+    display: table;
+    width: max-content;
+    min-width: 100%;
+    overflow: visible;
+  }
+
   .bitable-wrapper table th,
   .bitable-wrapper table td,
   .sheet-wrapper table th,
@@ -203,6 +224,15 @@ const CSS_STYLES = /* css */ `
     padding: 6px 12px;
     text-align: left;
     white-space: nowrap;
+  }
+
+  body.bitable-export-page .bitable-wrapper table th,
+  body.bitable-export-page .bitable-wrapper table td {
+    min-width: 160px;
+    max-width: 420px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    vertical-align: top;
   }
 
   .bitable-wrapper table th,
@@ -279,10 +309,17 @@ const PRINT_FRIENDLY_CSS = /* css */ `
 `
 
 export function wrapIntoFullHtml(options: HtmlTemplateOptions): string {
-  const { pageTitle, bodyHtml, attachments, includeStyles, printFriendly } =
-    options
+  const {
+    pageTitle,
+    bodyHtml,
+    attachments,
+    includeStyles,
+    printFriendly,
+    bodyClass,
+  } = options
 
   const title = escapeHtml(pageTitle || 'Document')
+  const classAttribute = bodyClass ? ` class="${escapeHtml(bodyClass)}"` : ''
 
   let styles = ''
   if (includeStyles) {
@@ -324,7 +361,7 @@ export function wrapIntoFullHtml(options: HtmlTemplateOptions): string {
 ${styles}
   </style>
 </head>
-<body>
+<body${classAttribute}>
   <article class="markdown-body">
 ${bodyHtml}
   </article>

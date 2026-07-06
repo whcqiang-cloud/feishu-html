@@ -1001,6 +1001,7 @@ const downloadStandaloneBitableAsHtml = async (): Promise<void> => {
       attachments: [],
       includeStyles: settings[SettingKey.HtmlIncludeStyles],
       printFriendly: settings[SettingKey.HtmlPrintFriendly],
+      bodyClass: 'bitable-export-page',
     })
 
     return new Blob([html], { type: 'text/html' })
