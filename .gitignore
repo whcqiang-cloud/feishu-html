@@ -37,3 +37,10 @@ Thumbs.db
 
 # project docs
 feishu-html.md
+
+# Release assets (deployment packages - not committed to git)
+apps/chrome-extension/web-ext-artifacts/*.zip
+apps/chrome-extension/cloud-document-html-*.zip
+apps/chrome-extension/release/
+/tmp/cloud-document-html-*.zip
+/tmp/cloud-document-html-*.tar.gz

@@ -555,7 +555,8 @@ const legacyRegexReplace = (
   text: string,
   pattern: RegExp,
   replacement: string,
-): string => RegExp.prototype[Symbol.replace].call(pattern, text, replacement)
+): string =>
+  Reflect.apply(RegExp.prototype[Symbol.replace], pattern, [text, replacement])
 
 const safeLegacyTrim = (text: string): string =>
   legacyRegexReplace(text, /^\s+|\s+$/g, '')
@@ -1001,6 +1002,7 @@ const downloadStandaloneBitableAsHtml = async (): Promise<void> => {
       attachments: [],
       includeStyles: settings[SettingKey.HtmlIncludeStyles],
       printFriendly: settings[SettingKey.HtmlPrintFriendly],
+      bodyClass: 'bitable-export-page',
     })
 
     return new Blob([html], { type: 'text/html' })

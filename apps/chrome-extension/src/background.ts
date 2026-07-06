@@ -132,7 +132,7 @@ const executeScriptByFlag = async (flag: string | number, tabId: number) => {
       await chrome.scripting.executeScript({
         files: [
           'bundles/scripts/bitable-clientvars-cache.js',
-          'bundles/scripts/bitable-export.js',
+          'bundles/scripts/download-lark-docx-as-markdown.js',
         ],
         target: { tabId },
         world: 'MAIN',
@@ -142,7 +142,7 @@ const executeScriptByFlag = async (flag: string | number, tabId: number) => {
       await chrome.scripting.executeScript({
         files: [
           'bundles/scripts/bitable-clientvars-cache.js',
-          'bundles/scripts/bitable-export.js',
+          'bundles/scripts/download-lark-docx-as-html.js',
         ],
         target: { tabId },
         world: 'MAIN',
