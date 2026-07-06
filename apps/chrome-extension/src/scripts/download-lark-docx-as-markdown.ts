@@ -684,7 +684,8 @@ const legacyRegexReplace = (
   text: string,
   pattern: RegExp,
   replacement: string,
-): string => RegExp.prototype[Symbol.replace].call(pattern, text, replacement)
+): string =>
+  Reflect.apply(RegExp.prototype[Symbol.replace], pattern, [text, replacement])
 
 const safeLegacyTrim = (text: string): string =>
   legacyRegexReplace(text, /^\s+|\s+$/g, '')
